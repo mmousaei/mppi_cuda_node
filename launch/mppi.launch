@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+
+<launch>
+    <!-- File management -->
+    <!-- <arg name="learning_config_file" default="../../../../configs/yamaha_atv/atv_model.yaml"/> -->
+    <!-- <arg name="use_gridmaps" default="true"/> -->
+    <arg name="device" default="cuda"/>
+    <!-- <node pkg="tf" type="static_transform_publisher" name="odom_to_mppi_frame" args="0 0 0 0 3.1415 3.1415 map mppi_frame 100" /> -->
+
+	<node pkg="mppi_cuda_node" type="mppi_cuda_node.py" name="mppi_cuda_node" output="screen"> 
+        <param name="/odom_topic" value="/odometry"/>
+        <!-- <param name="/ft_topic" value="/ft_data"/> -->
+        <param name="/activate_topic" value="/activate_mppi"/>
+        <!-- <param name="base_frame" value="sensor_init"/> -->
+        <!-- <param name="use_gridmaps" value="$(arg use_gridmaps)"/> -->
+        <param name="mppi_device" value="$(arg device)"/>
+	</node>
+
+</launch>
