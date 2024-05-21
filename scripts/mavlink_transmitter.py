@@ -12,7 +12,7 @@ class MavlinkTransmitter():
         self.boot_time = time.time()
 
 
-    def set_target_attitude(self, angular_rates, thrust, quat):
+    def send_attitude_control(self, angular_rates, thrust, quat):
         """ Sets the target attitude while in depth-hold mode.
 
         'roll', 'pitch', and 'yaw' are angles in degrees.

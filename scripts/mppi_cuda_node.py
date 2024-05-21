@@ -9,8 +9,10 @@ import numpy as np
 import rospy
 import torch
 import joblib
-from std_msgs.msg import Float32MultiArray
+
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Bool
+from geometry_msgs.msg import WrenchStamped
 from geometry_msgs.msg import PoseStamped
 from mppi_numba import MPPI_Numba, Config
 from tf.transformations import euler_from_quaternion
@@ -21,15 +23,17 @@ class ControlHexarotor:
         rospy.init_node('hexarotor_controller', anonymous=True)
         
         self.initialize_hexarotor_parameters()
-        self.frame_rate = 60
+        self.frame_rate = 100
         self.cnt = 0
         
-        self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', Float32MultiArray, queue_size=10)
+        self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
+        rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
 
         self.current_state = np.zeros(12)  # Placeholder for state from sensors
-        self.control_inputs = Float32MultiArray()
+        self.control_inputs = WrenchStamped()
+        
 
         self.states, self.actions, self.contact_forces, self.contact_torques, self.predicted_states, self.predicted_dynamics_agg, self.predicted_contact_forces, self.next_states, self.next_forces = [], [], [], [], [], [], [], [], []
         self.lqr_actions, self.mppi_dynamics_updates = [], []
@@ -37,12 +41,13 @@ class ControlHexarotor:
         self.cfg = Config(
             T=1.0,  # Horizon length in seconds
             dt=0.02,  # Time step
-            num_control_rollouts=2048*2,  # Number of control sequences to sample
+            num_control_rollouts=1024,  # Number of control sequences to sample
             num_controls=6,  # Dimensionality of control inputs
             num_states=12,  # Dimensionality of system states
             num_vis_state_rollouts=1,  # For visualization purposes
             seed=1
         )
+        self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
         self.mppi_controller = MPPI_Numba(self.cfg)
         self.mppi_params = {
             'dt': self.cfg.dt,
@@ -52,7 +57,7 @@ class ControlHexarotor:
             'dist_weight': 2000,
             'lambda_weight': 20.0,
             'num_opt': 5,
-            'u_std': np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01]) * 1,
+            'u_std': np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01]) * 0.1,
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-1, 1]),
         }
@@ -69,6 +74,8 @@ class ControlHexarotor:
         self.inertia_matrix = np.zeros((3, 3))
         np.fill_diagonal(self.inertia_matrix, self.inertia_flat)
 
+    def activate_callback(self, data):
+        self.activate = data.data
     def odometry_callback(self, data):
         # Update current state with odometry data
         pose = data.pose.pose
@@ -93,14 +100,19 @@ class ControlHexarotor:
 
     def compute_control(self):
         # print("compute control")
-        optimal_control_seq = self.mppi_controller.solve()
-        control_inputs = optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
-        self.control_inputs.data = control_inputs
+        print(f'current_state: {self.current_state[0]}, {self.current_state[1]}, {self.current_state[2]}')
+        self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
+        self.optimal_control_seq = self.mppi_controller.solve()
+        control_inputs = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
+        self.control_inputs.header.stamp = rospy.Time.now()
+        self.control_inputs.wrench.force.x = control_inputs[0]
+        self.control_inputs.wrench.force.y = control_inputs[1]
+        self.control_inputs.wrench.force.z = control_inputs[2]
         quat = [0, control_inputs[0], control_inputs[1], control_inputs[2]]
         angular_rates = [control_inputs[3], control_inputs[4], control_inputs]
         thrust = control_inputs[2]
         # use transmitter to send control inputs
-        if self.activate == True:
+        if self.activate:
             self.transmitter.send_attitude_control(angular_rates, thrust, quat)
         self.control_pub.publish(self.control_inputs)
 

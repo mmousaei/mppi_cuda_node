@@ -174,9 +174,9 @@ def dynamics_update(x, u, dt, contact_normal):
   I_yy = 0.116524229
   I_zz = 0.230387752
 
-  contact_force_x, contact_force_y, contact_force_z, contact_velocity_x, contact_velocity_y, contact_velocity_z\
-    , contact_moment_x, contact_moment_y, contact_moment_z = \
-    calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
+  # contact_force_x, contact_force_y, contact_force_z, contact_velocity_x, contact_velocity_y, contact_velocity_z\
+  #   , contact_moment_x, contact_moment_y, contact_moment_z = \
+  #   calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
 
   mass = 2.302499999999999
   c = -300
