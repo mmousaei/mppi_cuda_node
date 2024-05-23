@@ -31,12 +31,12 @@ class MavlinkTransmitter():
 if __name__ == '__main__':
 
     reader = MavlinkTransmitter()
-    # reader.master.wait_heartbeat()
-    roll_angle = 0.1
-    pitch_angle = 0.2
-    yaw_angle = 0.3
+    reader.master.wait_heartbeat()
+    angular_rates = [0, 0, 0]
+    thrust = 0.56
     quat = [0.2, 0, 0.2, -0.56]
+
     print("here")
     while(True):
-        reader.set_target_attitude(0, -0.56, quat)
+        reader.send_attitude_control(angular_rates, thrust, quat)
         time.sleep(1) # wait for a second
