@@ -33,10 +33,10 @@ if __name__ == '__main__':
     reader = MavlinkTransmitter()
     reader.master.wait_heartbeat()
     angular_rates = [0, 0, 0]
-    thrust = 0.56
-    quat = [0.2, 0, 0.2, -0.56]
+    thrust = -0.56
+    quat = [0.0, 0.0, -0.2, thrust]
 
     print("here")
     while(True):
         reader.send_attitude_control(angular_rates, thrust, quat)
-        time.sleep(1) # wait for a second
+        time.sleep(0.02) # wait for a second

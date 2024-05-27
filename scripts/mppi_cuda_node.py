@@ -14,9 +14,11 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
 from geometry_msgs.msg import WrenchStamped
 from geometry_msgs.msg import PoseStamped
-from mppi_numba import MPPI_Numba, Config
 from tf.transformations import euler_from_quaternion
 from mavlink_transmitter import MavlinkTransmitter
+
+from mppi_numba import MPPI_Numba, Config
+from hex_controller import HexarotorController
 
 from scipy.spatial.transform import Rotation
 
@@ -25,7 +27,7 @@ class ControlHexarotor:
         rospy.init_node('hexarotor_controller', anonymous=True)
         
         self.initialize_hexarotor_parameters()
-        self.frame_rate = 100
+        self.frame_rate = 50
         self.cnt = 0
         
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
@@ -60,7 +62,7 @@ class ControlHexarotor:
             'dist_weight': 2000,
             'lambda_weight': 20.0,
             'num_opt': 5,
-            'u_std': np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01]) * 0.1,
+            'u_std': np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01]) * 0.05,
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-1, 1]),
         }
@@ -69,9 +71,14 @@ class ControlHexarotor:
         self.transmitter.master.wait_heartbeat()
         self.activate = False
 
+        # Lqr parameters
+        self.hex_controller = HexarotorController()
+        self.hex_controller.m = self.hex_mass
+        self.hex_controller.J = self.inertia_matrix
+
     def initialize_hexarotor_parameters(self):
         # Set hexarotor parameters like mass, inertia matrix, etc.
-        self.hex_mass = 2.65  # example value, replace with actual mass
+        self.hex_mass = 2.57  # example value, replace with actual mass
         self.gravity_compensation = self.hex_mass * 9.81
         self.inertia_flat = np.array([0.115125971,  0.116524229,  0.230387752])
         self.inertia_matrix = np.zeros((3, 3))
@@ -106,9 +113,14 @@ class ControlHexarotor:
         self.control_inputs.wrench.force.x = control_inputs[0]
         self.control_inputs.wrench.force.y = control_inputs[1]
         self.control_inputs.wrench.force.z = control_inputs[2]
-        # quat = [0.0, -control_inputs[0], -control_inputs[1], control_inputs[2]]
-        quat = [0.0, -0.5, 0.5, control_inputs[2]]
-        angular_rates = [control_inputs[3], control_inputs[4], control_inputs[5]]
+        self.control_inputs.wrench.torque.x = control_inputs[3]
+        self.control_inputs.wrench.torque.y = control_inputs[4]
+        self.control_inputs.wrench.torque.z = control_inputs[5]
+        # quat = [0.0, control_inputs[0], control_inputs[1], control_inputs[2]]
+        quat = [0.0, control_inputs[0], control_inputs[1], control_inputs[2]]
+        # quat = [0.0, -0.0, 0.0, control_inputs[2]]
+        # angular_rates = [control_inputs[3], control_inputs[4], control_inputs[5]]
+        angular_rates = [0, 0, 0]
         thrust = control_inputs[2]
         # use transmitter to send control inputs
         if self.activate:
@@ -125,8 +137,8 @@ class ControlHexarotor:
         return gravity_vector_body
     def normalize_control_inputs(self, control_inputs):
         # print("normalize control inputs")
-        control_inputs[:2] = control_inputs[0:2] / 20
-        control_inputs[2] = control_inputs[2] / (20 + self.hex_mass*9.81)
+        control_inputs[:2] = -control_inputs[0:2] / 40
+        control_inputs[2] = -control_inputs[2] / (20 + self.hex_mass*9.81)
         control_inputs[3:6] = control_inputs[3:6] / 20
         return control_inputs
     def compute_control(self):
@@ -139,6 +151,14 @@ class ControlHexarotor:
         control_inputs[:3] += gravity_vector_body
         control_inputs = self.normalize_control_inputs(control_inputs)
         self.publish_cmd(control_inputs)
+
+    def compute_control_lqr(self):
+        # print("compute control lqr")
+        control_inputs = self.hex_controller.lqr_control(self.current_state.copy())
+        gravity_vector_body = self.compute_gravity_compensation()
+        control_inputs[:3] += gravity_vector_body
+        control_inputs = self.normalize_control_inputs(control_inputs)
+        self.publish_cmd(control_inputs)
         
 
     
@@ -147,7 +167,8 @@ class ControlHexarotor:
         print("spin")
         rate = rospy.Rate(self.frame_rate)
         while not rospy.is_shutdown():
-            self.compute_control()
+            # self.compute_control()
+            self.compute_control_lqr()
             rate.sleep()
 
 def main():

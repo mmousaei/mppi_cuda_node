@@ -87,7 +87,7 @@ def dynamics_update_sim(x, u, dt):
   I_yy = 0.116524229
   I_zz = 0.230387752
 
-  mass = 2.302499999999999
+  mass = 2.57
   g = 9.81
 
   
@@ -178,7 +178,7 @@ def dynamics_update(x, u, dt, contact_normal):
   #   , contact_moment_x, contact_moment_y, contact_moment_z = \
   #   calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
 
-  mass = 2.302499999999999
+  mass = 2.57
   c = -300
 
   fx_total = (u[0]) #+ (contact_force_x) - (c * (contact_velocity_x ) ) 
@@ -547,20 +547,29 @@ class MPPI_Numba(object):
       # w_omega = 10000
       # w_cont_f = 40000
       # w_cont_M = 10000
-
       # w_cont = 400
       # w_cont_m = 1000
-      w_pose_x = 100  
-      w_pose_y = 100 
-      w_pose_z = 100
-      w_vel = 1
-      w_att = 10000
-      w_omega = 1
+
+      # w_pose_x = 500  
+      # w_pose_y = 500 
+      # w_pose_z = 500
+      # w_vel = 10
+      # w_att = 10000
+      # w_omega = 1
+      # w_cont_f = 10
+      # w_cont_M = 10
+
+      w_pose_x = 1200  
+      w_pose_y = 1200 
+      w_pose_z = 1200
+      w_vel = 10
+      w_att = 100000
+      w_omega = 100
       w_cont_f = 10
       w_cont_M = 10
 
-      w_cont = 1
-      w_cont_m = 1 
+      w_cont = 10
+      w_cont_m = 10
       # If else statements will be expensive
       dist_to_goal2 = w_pose_x*((xgoal_d[0]-x_curr[0])**2) + w_pose_y*((xgoal_d[1]-x_curr[1])**2) + w_pose_z*((xgoal_d[2]-x_curr[2])**2) \
                     + w_vel*((xgoal_d[3]-x_curr[3])**2 + (xgoal_d[4]-x_curr[4])**2 + (xgoal_d[5]-x_curr[5])**2)\
@@ -805,15 +814,18 @@ class MPPI_Numba(object):
 if __name__ == "__main__":
     num_controls = 6
     num_states = 12
-    cfg = Config(T = 1.0,
-            dt = 0.02,
-            num_control_rollouts = 2048,#int(2e4), # Same as number of blocks, can be more than 1024
+    cfg = Config(
+            T=1.0,  # Horizon length in seconds
+            dt=0.02,  # Time step
+            num_control_rollouts=1024,  # Number of control sequences to sample
             num_controls = num_controls,
-            num_states = num_states,
-            num_vis_state_rollouts = 1,
-            seed = 1)
+            num_states = num_states,  # Dimensionality of system states
+            num_vis_state_rollouts=1,  # For visualization purposes
+            seed=1
+        )
     x0 = np.zeros(12)
-    xgoal = np.array([14,-1, 3, 0, 0, 0, 0.1, -0.1, 0.3, 0, 0, 0])
+    # xgoal = np.array([1,-1, 3, 0, 0, 0, 0.1, -0.1, 0.3, 0, 0, 0])
+    xgoal = np.array([1,-1, 3, 0, 0, 0, 0.0, -0.0, 0.0, 0, 0, 0])
 
 
     mppi_params = dict(
@@ -830,7 +842,7 @@ if __name__ == "__main__":
         num_opt=5, # Number of steps in each solve() function call.
 
         # Control and sample specification
-        u_std=np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01])*0.1, # Noise std for sampling linear and angular velocities.
+        u_std=np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01])*0.05, # Noise std for sampling linear and angular velocities.
         vrange = np.array([-10.0, 10.0]), # Linear velocity range.
         wrange=np.array([-0.1, 0.1]), # Angular velocity range.
     )
@@ -853,7 +865,7 @@ if __name__ == "__main__":
         useq = mppi_controller.solve()
         u_curr = useq[0]
         phi, theta, psi = xhist[t, 6:9]
-        gravity_vector_world = np.array([0, 0, 9.81*2.302499999999999])
+        gravity_vector_world = np.array([0, 0, 9.81*2.57])
         R = np.array([
             [np.cos(theta)*np.cos(psi), np.sin(phi)*np.sin(theta)*np.cos(psi) - np.cos(phi)*np.sin(psi), np.cos(phi)*np.sin(theta)*np.cos(psi) + np.sin(phi)*np.sin(psi)],
             [np.cos(theta)*np.sin(psi), np.sin(phi)*np.sin(theta)*np.sin(psi) + np.cos(phi)*np.cos(psi), np.cos(phi)*np.sin(theta)*np.sin(psi) - np.sin(phi)*np.cos(psi)],
