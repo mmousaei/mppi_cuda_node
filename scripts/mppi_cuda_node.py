@@ -103,8 +103,12 @@ class ControlHexarotor:
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
 
     def target_callback(self, data):
-        # print("Target Received")
-        self.mppi_params['xgoal'] = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
+        print("Target Received")
+        # self.mppi_params['xgoal'] = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
+        #                                       data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
+        #                                       0, 0, 0, \
+        #                                       0, 0, 0])
+        self.hex_controller.desired_x = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
                                               data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
                                               0, 0, 0, \
                                               0, 0, 0])
@@ -117,9 +121,9 @@ class ControlHexarotor:
         self.control_inputs.wrench.torque.y = control_inputs[4]
         self.control_inputs.wrench.torque.z = control_inputs[5]
         # quat = [0.0, control_inputs[0], control_inputs[1], control_inputs[2]]
-        quat = [0.0, control_inputs[0], control_inputs[1], control_inputs[2]]
+        quat = [0.0, -control_inputs[0], control_inputs[1], control_inputs[2]]
         # quat = [0.0, -0.0, 0.0, control_inputs[2]]
-        # angular_rates = [control_inputs[3], control_inputs[4], control_inputs[5]]
+        # angular_rates = [-control_inputs[3], control_inputs[4], -control_inputs[5]]
         angular_rates = [0, 0, 0]
         thrust = control_inputs[2]
         # use transmitter to send control inputs
