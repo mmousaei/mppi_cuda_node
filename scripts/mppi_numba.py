@@ -559,10 +559,10 @@ class MPPI_Numba(object):
       # w_cont_f = 10
       # w_cont_M = 10
 
-      w_pose_x = 1200  
-      w_pose_y = 1200 
-      w_pose_z = 1200
-      w_vel = 10
+      w_pose_x = 2200  
+      w_pose_y = 2200 
+      w_pose_z = 2200
+      w_vel = 100
       w_att = 100000
       w_omega = 100
       w_cont_f = 10
@@ -570,7 +570,7 @@ class MPPI_Numba(object):
 
       w_cont = 10
       w_cont_m = 10
-      # If else statements will be expensive
+
       dist_to_goal2 = w_pose_x*((xgoal_d[0]-x_curr[0])**2) + w_pose_y*((xgoal_d[1]-x_curr[1])**2) + w_pose_z*((xgoal_d[2]-x_curr[2])**2) \
                     + w_vel*((xgoal_d[3]-x_curr[3])**2 + (xgoal_d[4]-x_curr[4])**2 + (xgoal_d[5]-x_curr[5])**2)\
                     + w_att*((xgoal_d[6]-x_curr[6])**2 + (xgoal_d[7]-x_curr[7])**2 + (xgoal_d[8]-x_curr[8])**2)\
@@ -824,8 +824,8 @@ if __name__ == "__main__":
             seed=1
         )
     x0 = np.zeros(12)
-    # xgoal = np.array([1,-1, 3, 0, 0, 0, 0.1, -0.1, 0.3, 0, 0, 0])
-    xgoal = np.array([1,-1, 3, 0, 0, 0, 0.0, -0.0, 0.0, 0, 0, 0])
+    xgoal = np.array([1,-1, 3, 0, 0, 0, 0.1, -0.1, 0.3, 0, 0, 0])
+    # xgoal = np.array([1,-1, 2, 0, 0, 0, 0.0, -0.0, 0.0, 0, 0, 0])
 
 
     mppi_params = dict(
@@ -851,7 +851,7 @@ if __name__ == "__main__":
     mppi_controller.set_params(mppi_params)
 
     # Loop
-    max_steps = 500
+    max_steps = 1000
     xhist = np.zeros((max_steps+1, num_states))*np.nan
     uhist = np.zeros((max_steps, num_controls))*np.nan
     xhist[0] = x0
@@ -880,7 +880,9 @@ if __name__ == "__main__":
         # print("x: ", xhist[t+1, :])
         print(t)
         # Update MPPI state (x0, useq)
-        mppi_controller.shift_and_update(xhist[t+1], useq, num_shifts=1)
+        x_current_noisy = xhist[t+1]
+        x_current_noisy[:3] += 0.01*np.random.rand(3)
+        mppi_controller.shift_and_update(x_current_noisy, useq, num_shifts=1)
 
     # Assuming xgoal is your goal position and it has appropriate values for each state
     x_goal, y_goal, z_goal = xgoal[:3]

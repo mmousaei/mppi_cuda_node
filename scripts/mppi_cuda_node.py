@@ -112,10 +112,10 @@ class ControlHexarotor:
 
     def target_callback(self, data):
         print("Target Received")
-        # self.mppi_params['xgoal'] = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
-        #                                       data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
-        #                                       0, 0, 0, \
-        #                                       0, 0, 0])
+        self.mppi_params['xgoal'] = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
+                                              0, 0, 0, \
+                                              data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
+                                              0, 0, 0])
         self.lqr_controller.desired_x = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
                                               0, 0, 0, \
                                               data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
@@ -156,7 +156,7 @@ class ControlHexarotor:
         return control_inputs
     def compute_control(self):
         # print("compute control")
-        print(f'current_state: {self.current_state[0]}, {self.current_state[1]}, {self.current_state[2]}')
+        # print(f'current_state: {self.current_state[0]}, {self.current_state[1]}, {self.current_state[2]}')
         self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
         control_inputs = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
@@ -180,8 +180,8 @@ class ControlHexarotor:
         print("spin")
         rate = rospy.Rate(self.frame_rate)
         while not rospy.is_shutdown():
-            # self.compute_control()
-            self.compute_control_lqr()
+            self.compute_control()
+            # self.compute_control_lqr()
             rate.sleep()
 
 def main():
