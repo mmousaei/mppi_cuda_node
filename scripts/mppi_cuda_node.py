@@ -16,9 +16,10 @@ from geometry_msgs.msg import WrenchStamped
 from geometry_msgs.msg import PoseStamped
 from tf.transformations import euler_from_quaternion
 from mavlink_transmitter import MavlinkTransmitter
+from geometry_msgs.msg import Vector3Stamped
 
 from mppi_numba import MPPI_Numba, Config
-from hex_controller import HexarotorController
+from lqr_controller import LqrController
 
 from scipy.spatial.transform import Rotation
 
@@ -31,6 +32,7 @@ class ControlHexarotor:
         self.cnt = 0
         
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
+        self.att_debug_pub = rospy.Publisher('/mppi_debug/att_debug', Vector3Stamped, queue_size=10)
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
@@ -72,9 +74,9 @@ class ControlHexarotor:
         self.activate = False
 
         # Lqr parameters
-        self.hex_controller = HexarotorController()
-        self.hex_controller.m = self.hex_mass
-        self.hex_controller.J = self.inertia_matrix
+        self.lqr_controller = LqrController()
+        self.lqr_controller.m = self.hex_mass
+        self.lqr_controller.J = self.inertia_matrix
 
     def initialize_hexarotor_parameters(self):
         # Set hexarotor parameters like mass, inertia matrix, etc.
@@ -101,6 +103,12 @@ class ControlHexarotor:
         self.current_state[6:9] = euler
         # use transmitter to send control inputs
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
+        att_msg = Vector3Stamped()
+        att_msg.header.stamp = data.header.stamp
+        att_msg.vector.x = euler[0]
+        att_msg.vector.y = euler[1]
+        att_msg.vector.z = euler[2]
+        self.att_debug_pub.publish(att_msg)
 
     def target_callback(self, data):
         print("Target Received")
@@ -108,9 +116,9 @@ class ControlHexarotor:
         #                                       data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
         #                                       0, 0, 0, \
         #                                       0, 0, 0])
-        self.hex_controller.desired_x = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
-                                              data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
+        self.lqr_controller.desired_x = np.array([data.pose.position.x, data.pose.position.y, data.pose.position.z, \
                                               0, 0, 0, \
+                                              data.pose.orientation.x, data.pose.orientation.y, data.pose.orientation.z, \
                                               0, 0, 0])
     def publish_cmd(self, control_inputs):
         self.control_inputs.header.stamp = rospy.Time.now()
@@ -124,7 +132,8 @@ class ControlHexarotor:
         quat = [0.0, -control_inputs[0], control_inputs[1], control_inputs[2]]
         # quat = [0.0, -0.0, 0.0, control_inputs[2]]
         # angular_rates = [-control_inputs[3], control_inputs[4], -control_inputs[5]]
-        angular_rates = [0, 0, 0]
+        angular_rates = [control_inputs[3], -control_inputs[4], -control_inputs[5]]
+        # angular_rates = [0, 0, 0]
         thrust = control_inputs[2]
         # use transmitter to send control inputs
         if self.activate:
@@ -158,7 +167,7 @@ class ControlHexarotor:
 
     def compute_control_lqr(self):
         # print("compute control lqr")
-        control_inputs = self.hex_controller.lqr_control(self.current_state.copy())
+        control_inputs = self.lqr_controller.lqr_control(self.current_state.copy())
         gravity_vector_body = self.compute_gravity_compensation()
         control_inputs[:3] += gravity_vector_body
         control_inputs = self.normalize_control_inputs(control_inputs)

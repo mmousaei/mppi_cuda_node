@@ -1,17 +1,17 @@
 import numpy as np
 import control as ctrl
 
-class HexarotorController:
+class LqrController:
     def __init__(self):
         self.dt = 0.02
         self.g = 9.81
         # Initialize LQR parameters
-        qp = 2000
-        qv = 10
-        qo = 51550000
-        qw = 100000
-        cf = 50
-        cw = 5000
+        qp = 20
+        qv = 1
+        qo = 515
+        qw = 1
+        cf = 1
+        cw = 1
         self.Q = np.diag([qp, qp, qp*2, qv, qv, qv, qo*4, qo*4, qo*10, qw, qw, qw])  # Adjust these values
         self.R = np.diag([cf ,cf, cf, cw, cw, cw])  # Adjust these values
         self.desired_x = np.zeros(12)  # Desired state [position, velocity, euler angle, angular velocity]
@@ -56,10 +56,10 @@ class HexarotorController:
         A = np.array([
             [0, 0, 0,           1, 0, 0,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
             [0, 0, 0,           0, 1, 0,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
-            [0, 0, 0,           0, 0, 1,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
-            [0, 0, 0,           0, 0, 0,            0,                                                                          -g*np.cos(theta),                                                                                              0,               0,                                                                   0,                                                                  0],
-            [0, 0, 0,           0, 0, 0,            g*np.cos(phi)*np.cos(theta),                                                -g*np.sin(phi)*np.sin(theta),                                                                                  0,               0,                                                                   0,                                                                  0],
-            [0, 0, 0,           0, 0, 0,           -g*np.sin(phi)*np.cos(theta),                                                -g*np.cos(phi)*np.sin(theta),                                                                                  0,               0,                                                                   0,                                                                  0],
+            [0, 0, 0,           0, 0, 1,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],     
+            [0, 0, 0,           0, 0, 0,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
+            [0, 0, 0,           0, 0, 0,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
+            [0, 0, 0,           0, 0, 0,            0,                                                                           0,                                                                                                            0,               0,                                                                   0,                                                                  0],
             [0, 0, 0,           0, 0, 0,            omega[1]*np.cos(phi)*np.tan(theta) - omega[2]*np.sin(phi)*np.tan(theta),     omega[1]*(np.tan(theta)**2 + 1)*np.sin(phi) + omega[2]*(np.tan(theta)**2 + 1)*np.cos(phi),                    0,               1,                                                                   np.sin(phi)*np.tan(theta),                                          np.cos(phi)*np.tan(theta)],
             [0, 0, 0,           0, 0, 0,            -omega[1]*np.sin(phi) - omega[2]*np.cos(phi),                                0,                                                                                                            0,               0,                                                                   np.cos(phi),                                                        -np.sin(phi)],
             [0, 0, 0,           0, 0, 0,            omega[1]*np.cos(phi)/np.cos(theta) - omega[2]*np.sin(phi)/np.cos(theta),     omega[1]*np.sin(theta)*np.sin(phi)/np.cos(theta)**2 + omega[2]*np.sin(theta)*np.cos(phi)/np.cos(theta)**2,    0,               0,                                                                   np.sin(phi)/np.cos(theta),                                          np.cos(phi)/np.cos(theta)],
