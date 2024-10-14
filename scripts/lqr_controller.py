@@ -27,7 +27,7 @@ class LqrController:
     def hex_dynamics(self, x, u):
         p, v, Psi, omega = np.split(x, 4)
         f_T, m_T = u[:3], u[3:]
-        phi, theta, psi = Psi
+        phi, theta, psi = Psi # 6, 7, 8
         R = np.array([
             [np.cos(theta)*np.cos(psi), np.cos(theta)*np.sin(psi), -np.sin(theta)],
             [np.sin(phi)*np.sin(theta)*np.cos(psi) - np.cos(phi)*np.sin(psi), np.sin(phi)*np.sin(theta)*np.sin(psi) + np.cos(phi)*np.cos(psi), np.sin(phi)*np.cos(theta)],
