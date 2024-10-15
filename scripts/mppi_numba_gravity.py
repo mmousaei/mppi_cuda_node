@@ -77,7 +77,7 @@ def dynamics_update_sim(x, u, dt):
   I_yy = 0.116524229
   I_zz = 0.230387752
 
-  mass = 2.302499999999999
+  mass = 3.49
   g = 9.81
 
   
@@ -168,7 +168,7 @@ def dynamics_update(x, u, dt, contact_normal):
     , contact_moment_x, contact_moment_y, contact_moment_z = \
     calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
 
-  mass = 2.302499999999999
+  mass = 3.49
   c = -300
   g = 9.81
 
@@ -250,10 +250,10 @@ class MPPI_Numba(object):
     # Other task specific params
     self.last_noise_d = None # keep last noise for ou process noise samping
     # OU params
-    self.use_ou = False
-    self.theta = 1  # Example value
+    self.use_ou = True #
+    self.theta = 2  # OU process theta
     self.mu = 0.0  # OU process mean
-    self.sigma = 1  # Example value
+    self.sigma = np.array([1.0, 1.0, 5.0, 0.05, 0.05, 0.03])*1
     self.delta_t = self.cfg.dt  # Time step, already defined in Config
     self.ou_alpha = 0.7
     self.ou_scale = 1
@@ -280,7 +280,7 @@ class MPPI_Numba(object):
   def reset(self):
     # Other task specific params
     self.u_seq0 = np.zeros((self.num_steps, self.num_controls), dtype=np.float32)
-    mass = 2.3025
+    mass = 3.49
     g = 9.81
     self.u_seq0[:, 2] = mass * g  # Set hover thrust in the z-direction
     self.params = None
@@ -372,7 +372,7 @@ class MPPI_Numba(object):
            u_std_d, x0_d, dt_d, obs_cost_d, obs_pos_d, obs_r_d = self.move_mppi_task_vars_to_device()
   
     dist_to_goal_d = cuda.device_array(6, dtype=np.float32)  # Add distance to goal for each control
-    coef_dist_to_goal = np.array([1, 1, 1, 0.3, 0.3, 0.3], dtype=np.float32) * 10  # Coefficients for distance scaling
+    coef_dist_to_goal = np.array([1, 1, 5, 0.03, 0.03, 0.03], dtype=np.float32)*0.1  # Coefficients for distance scaling
 
     # Weight for distance cost
     dist_weight = DEFAULT_DIST_WEIGHT if 'dist_weight' not in self.params else self.params['dist_weight']
@@ -383,11 +383,16 @@ class MPPI_Numba(object):
     for k in range(self.params['num_opt']):
       # Sample control noise
       if self.use_ou:
+        # Scale the std by distance
+        dist_to_goal = (self.params['xgoal'][:6] - self.params['x0'][:6])**2
         # Call OU noise sampling kernel
         self.sample_noise_ou_numba[self.num_control_rollouts, self.num_steps](
-            self.rng_states_d, self.ou_alpha, self.sys_noise, self.ou_scale, self.d_ou_scale, self.num_steps,
-            self.num_control_rollouts, self.num_controls, self.umin, self.umax,
-            self.last_controls_d, self.noise_samples_d, self.dz)
+            self.rng_states_d,
+            self.theta,
+            self.mu,
+            self.sigma,
+            self.dt,
+            self.noise_samples_d)
 
       else:
         dist_to_goal = np.abs(self.params['xgoal'][:6] - self.params['x0'][:6])
@@ -545,23 +550,23 @@ class MPPI_Numba(object):
       # Forward simulate
       dynamics_update(x_curr, u_noisy, dt_d, CONTACT_NORMAL)
 
-      w_pose_xy = 2500
-      w_pose_z =  2500
-      w_vel = 250
-      w_att = 28500
-      w_omega = 1800
-      w_cont = 5
-      w_cont_m = 10
-      w_cont_f = 1
-      w_cont_M = 1
-      w_term = 1000
+      w_pose_xy = 4500
+      w_pose_z =  4500
+      w_vel = 1000
+      w_att = 75000
+      w_omega = 10000
+      w_cont = 10000
+      w_cont_m = 100000
+      w_cont_f = 0
+      w_cont_M = 0
+      w_term = 500
 
-      w_control_rate_fx = 1000 
-      w_control_rate_fy = 1000
-      w_control_rate_fz = 1000
-      w_control_rate_mx = 5000
-      w_control_rate_my = 5000
-      w_control_rate_mz = 5000
+      w_control_rate_fx = 0
+      w_control_rate_fy = 0
+      w_control_rate_fz = 0
+      w_control_rate_mx = 0
+      w_control_rate_my = 0
+      w_control_rate_mz = 0
 
 
       # w_control_rate_fx = 0 
@@ -574,20 +579,20 @@ class MPPI_Numba(object):
       # w_pose_xy = 2500
       # w_pose_z =  5000
       # w_vel = 250
-      # w_att = 75500
-      # w_omega = 500
+      # w_att =  755000
+      # w_omega = 50000
       # w_cont = 1
       # w_cont_m = 1
       # w_cont_f = 1
       # w_cont_M = 1
-      # w_term = 100000
+      # w_term = 1000
 
       # If else statements will be expensive
       dist_to_goal2 = w_pose_xy*((xgoal_d[0]-x_curr[0])**2 + 4*(xgoal_d[1]-x_curr[1])**2) + w_pose_z*((xgoal_d[2]-x_curr[2])**2) \
                     + w_vel*((xgoal_d[3]-x_curr[3])**2 + 4*(xgoal_d[4]-x_curr[4])**2 + (xgoal_d[5]-x_curr[5])**2)\
                     + w_att*(5*(xgoal_d[6]-x_curr[6])**2 + 5*(xgoal_d[7]-x_curr[7])**2 + 2*(xgoal_d[8]-x_curr[8])**2)\
                     + w_omega*((xgoal_d[9]-x_curr[9])**2 + (xgoal_d[10]-x_curr[10])**2 + 2*(xgoal_d[11]-x_curr[11])**2)\
-                    + w_cont_f*((u_nom[0]**2) + (u_nom[1]**2) + (u_nom[2]**2))\
+                    + w_cont_f*((u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - 3.49*9.81)**2))\
                     + w_cont_M*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2))
                     
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
@@ -699,9 +704,15 @@ class MPPI_Numba(object):
     starti = min(tid*tgap, timesteps)
     endi = min(starti+tgap, timesteps)
     for ti in range(starti, endi):
-      u_cur_d[ti, 0] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 0]))
-      u_cur_d[ti, 1] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 1]))
-      u_cur_d[ti, 2] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 2]))
+      # u_cur_d[ti, 0] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 0]))
+      # u_cur_d[ti, 1] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 1]))
+      # u_cur_d[ti, 2] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 2]))
+      # u_cur_d[ti, 3] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 3]))
+      # u_cur_d[ti, 4] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 4]))
+      # u_cur_d[ti, 5] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 5]))
+      u_cur_d[ti, 0] = max(-10, min(10, u_cur_d[ti, 0]))
+      u_cur_d[ti, 1] = max(-10, min(10, u_cur_d[ti, 1]))
+      u_cur_d[ti, 2] = max(0, min(60, u_cur_d[ti, 2]))
       u_cur_d[ti, 3] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 3]))
       u_cur_d[ti, 4] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 4]))
       u_cur_d[ti, 5] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 5]))
@@ -808,30 +819,23 @@ class MPPI_Numba(object):
 
 
   @staticmethod
-  @cuda.jit
-  def sample_noise_ou_numba(rng_states, ou_alpha, sys_noise, ou_scale, d_ou_scale, T, K1, m, umin, umax, last_controls, control_noise, dz):
-      tx = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
-      ty = cuda.threadIdx.y + cuda.blockIdx.y * cuda.blockDim.y
+  @cuda.jit(fastmath=True)
+  def sample_noise_ou_numba(rng_states, theta, mu, sigma, dt, noise_samples_d):
+      bid = cuda.blockIdx.x
+      tid = cuda.threadIdx.x
+      num_controls = noise_samples_d.shape[2]
+      abs_tid = bid * noise_samples_d.shape[1] + tid
 
-      if tx < K1 and ty < m:
-          ou_alpha_f32 = float32(ou_alpha)
-          ou_scale_f32 = float32(ou_scale)
-          d_ou_scale_f32 = float32(d_ou_scale)
-          T_f32 = float32(T)
-
-          sys_noise_f32 = float32(sys_noise[ty])
-
-          for t in range(T):
-              if t == 0:
-                  initial_noise = xoroshiro128p_normal_float32(rng_states, tx * m + ty) * sys_noise_f32 * (ou_scale_f32 / T_f32)
-                  dz[tx, t, ty] = initial_noise
-              else:
-                  incremental_noise = xoroshiro128p_normal_float32(rng_states, tx * m + ty + K1 * t) * sys_noise_f32 * (d_ou_scale_f32 / T_f32)
-                  dz[tx, t, ty] = ou_alpha_f32 * dz[tx, t - 1, ty] + (1 - ou_alpha_f32) * incremental_noise
-
-              control_noise_val = last_controls[tx, t, ty] + dz[tx, t, ty]
-              control_noise_val = max(umin[ty], min(control_noise_val, umax[ty]))
-              control_noise[tx, t, ty] = control_noise_val
+      for i in range(num_controls):
+          # Initialize the noise value
+          if tid == 0:
+              prev_noise = mu
+          else:
+              prev_noise = noise_samples_d[bid, tid - 1, i]
+          
+          # Generate OU noise
+          dx = theta * (mu - prev_noise) * dt + sigma[i] * math.sqrt(dt) * xoroshiro128p_normal_float32(rng_states, abs_tid)
+          noise_samples_d[bid, tid, i] = prev_noise + dx
   
 if __name__ == "__main__":
     num_controls = 6
@@ -857,13 +861,13 @@ if __name__ == "__main__":
         goal_tolerance=0.001,
         dist_weight=2000, #  Weight for dist-to-goal cost.
         # dist_weights = np.array([200, 200, 500, 0, 0, 0, 1000, 1000, 2000, 0, 0, 0]),
-        lambda_weight=20.0, # Temperature param in MPPI
+        lambda_weight=0.00001, # Temperature param in MPPI
         num_opt=2, # Number of steps in each solve() function call.
 
         # Control and sample specification
         u_std=np.array([0.2, 0.2, 0.5, 0.005, 0.005, 0.003])*3, # Noise std for sampling linear and angular velocities.
-        vrange = np.array([-50.0, 50.0]), # Linear velocity range.
-        wrange=np.array([-0.5, 0.5]), # Angular velocity range.
+        vrange = np.array([-60.0, 60.0]), # Linear velocity range.
+        wrange=np.array([-0.1, 0.1]), # Angular velocity range.
     )
 
     mppi_controller = MPPI_Numba(cfg)
@@ -884,7 +888,7 @@ if __name__ == "__main__":
         useq = mppi_controller.solve()
         u_curr = useq[0]
         phi, theta, psi = xhist[t, 6:9]
-        gravity_vector_world = np.array([0, 0, 9.81*2.302499999999999])
+        gravity_vector_world = np.array([0, 0, 9.81*3.49])
         R = np.array([
             [np.cos(theta)*np.cos(psi), np.sin(phi)*np.sin(theta)*np.cos(psi) - np.cos(phi)*np.sin(psi), np.cos(phi)*np.sin(theta)*np.cos(psi) + np.sin(phi)*np.sin(psi)],
             [np.cos(theta)*np.sin(psi), np.sin(phi)*np.sin(theta)*np.sin(psi) + np.cos(phi)*np.cos(psi), np.cos(phi)*np.sin(theta)*np.sin(psi) - np.sin(phi)*np.cos(psi)],
