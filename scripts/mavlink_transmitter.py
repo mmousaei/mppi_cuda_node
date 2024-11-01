@@ -12,12 +12,14 @@ class MavlinkTransmitter():
         self.boot_time = time.time()
 
 
-    def send_attitude_control(self, angular_rates, thrust, quat):
+    def send_attitude_control(self, angular_rates, thrust, quat, rwheel_torque):
         """ Sets the target attitude while in depth-hold mode.
 
         'roll', 'pitch', and 'yaw' are angles in degrees.
 
         """
+        print(angular_rates, thrust, quat, rwheel_torque)
+        quat[0] = rwheel_torque # quat[0] isn't used so we can send rwheel_torque with it
         self.master.mav.set_attitude_target_send(
             int(1e3 * (time.time() - self.boot_time)), # ms since boot
             self.master.target_system, self.master.target_component,
