@@ -18,8 +18,8 @@ from tf.transformations import euler_from_quaternion
 from mavlink_transmitter import MavlinkTransmitter
 from geometry_msgs.msg import Vector3Stamped
 
-# from mppi_numba_retune import MPPI_Numba, Config
-from mppi_numba import MPPI_Numba, Config
+from mppi_numba_retune import MPPI_Numba, Config
+# from mppi_numba import MPPI_Numba, Config
 # from lqr_controller import LqrController
 from lqr_controller_gravity import LqrController
 
@@ -28,6 +28,7 @@ from scipy.spatial.transform import Rotation
 class ControlHexarotor:
     def __init__(self):
         rospy.init_node('hexarotor_controller', anonymous=True)
+        print("1")
         
         self.initialize_hexarotor_parameters()
         self.frame_rate = 50
@@ -56,6 +57,8 @@ class ControlHexarotor:
             num_vis_state_rollouts=1,  # For visualization purposes
             seed=1
         )
+        print("2")
+
         self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
         self.mppi_controller = MPPI_Numba(self.cfg)
         self.mppi_params = {
@@ -66,13 +69,15 @@ class ControlHexarotor:
             'dist_weight': 2000,
             'lambda_weight': 10.0,
             'num_opt': 5,
-            'u_std': np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01])*0.05,
+            'u_std': np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01])*0.05,
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
-            'weights' : np.array([4550, 4550, 5300, 150, 75000, 35000, 85000, 500, 1, 5, 5, 1, 500]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
+            'weights' : np.array([5200, 5200, 9200, 100, 100000, 100000, 1200000, 100, 10, 10, 10, 10, 0]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
             # 'weights' : np.array([x, y, z, v, r, p, y, w, f1, f2, m2, m1, t]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
-            'inertia_mass' : np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass]) # I_xx, I_yy, I_zz, mass
+            # 'inertia_mass' : np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass]) # I_xx, I_yy, I_zz, mass
+            'inertia_mass' : np.array([0.115125971, 0.116524229, 0.230387752, 2.57]) # I_xx, I_yy, I_zz, mass
         }
+        print("3")
         
         self.mppi_controller.set_params(self.mppi_params)
         self.transmitter = MavlinkTransmitter()
@@ -85,6 +90,8 @@ class ControlHexarotor:
         
         self.lqr_controller.J = self.inertia_matrix
         self.lqr_controller.desired_x = self.mppi_params['xgoal']
+        print("4")
+
 
     def initialize_hexarotor_parameters(self):
         # Set hexarotor parameters like mass, inertia matrix, etc.
@@ -211,9 +218,11 @@ class ControlHexarotor:
         control_inputs = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
         gravity_vector_body = self.compute_gravity_compensation()
         control_inputs[:3] -= gravity_vector_body
-        next_state = self.dynamics_update(self.current_state, control_inputs, 0.02) 
+        next_state = self.dynamics_update(self.current_state, control_inputs, 0.02) * 0.35
         control_inputs = self.normalize_control_inputs(control_inputs, gravity_vector_body)
         rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
+        rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], next_state[11]])
+        
         # rate_controls = self.normalize_control_inputs(rate_controls)
         self.publish_cmd(rate_controls)
         # self.publish_cmd(control_inputs)
@@ -229,7 +238,8 @@ class ControlHexarotor:
         # control_inputs[:3] -= (gravity_vector_body)
         next_state = self.dynamics_update(self.current_state, control_inputs, 0.02) * 1
         control_inputs = self.normalize_control_inputs_lqr(control_inputs, gravity_vector_body)
-        rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], -next_state[11]])
+        # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
+        rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], next_state[11]])
         # rate_controls = self.normalize_control_inputs_lqr(control_inputs, gravity_vector_body)
         # rate_controls[:3] += (gravity_vector_body / 45.45)
         
@@ -247,8 +257,8 @@ class ControlHexarotor:
         print("spin")
         rate = rospy.Rate(self.frame_rate)
         while not rospy.is_shutdown():
-            self.compute_control()
-            # self.compute_control_force_angular_rate()
+            # self.compute_control()
+            self.compute_control_force_angular_rate()
             # self.compute_control_lqr()
             rate.sleep()
 

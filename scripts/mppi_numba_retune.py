@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 # Information about your GPU
 gpu = cuda.get_current_device()
 max_threads_per_block = gpu.MAX_THREADS_PER_BLOCK
+print("max t p b: ", max_threads_per_block)
+
 max_square_block_dim = (int(gpu.MAX_BLOCK_DIM_X**0.5), int(gpu.MAX_BLOCK_DIM_X**0.5))
 max_blocks = gpu.MAX_GRID_DIM_X
 max_rec_blocks = rec_max_control_rollouts = int(1e6) # Though theoretically limited by max_blocks on GPU
