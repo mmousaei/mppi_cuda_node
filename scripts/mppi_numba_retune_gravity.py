@@ -291,7 +291,7 @@ class MPPI_Numba(object):
     # Other task specific params
     self.u_seq0 = np.zeros((self.num_steps, self.num_controls), dtype=np.float32)
     g = 9.81
-    self.u_seq0[:, 2] = self.inertia_mass[3] * g  # Set hover thrust in the z-direction
+    self.u_seq0[:, 2] = 2.57 * g  # Set hover thrust in the z-direction
     self.params = None
     self.params_set = False
 
@@ -532,7 +532,10 @@ class MPPI_Numba(object):
     u_nom =  cuda.local.array(6, numba.float32)
     u_diff = cuda.local.array(6, numba.float32)
 
-    
+    # Initialize previous control input
+    u_prev = cuda.local.array(6, numba.float32)
+    for i in range(6):
+      u_prev[i] = u_cur_d[0, i]
 
     # printed=False
     for t in range(timesteps):
@@ -667,9 +670,9 @@ class MPPI_Numba(object):
     starti = min(tid*tgap, timesteps)
     endi = min(starti+tgap, timesteps)
     for ti in range(starti, endi):
-      u_cur_d[ti, 0] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 0]))
-      u_cur_d[ti, 1] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 1]))
-      u_cur_d[ti, 2] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 2]))
+      # u_cur_d[ti, 0] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 0]))
+      # u_cur_d[ti, 1] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 1]))
+      # u_cur_d[ti, 2] = max(vrange_d[0], min(vrange_d[1], u_cur_d[ti, 2]))
       u_cur_d[ti, 3] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 3]))
       u_cur_d[ti, 4] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 4]))
       u_cur_d[ti, 5] = max(wrange_d[0], min(wrange_d[1], u_cur_d[ti, 5]))

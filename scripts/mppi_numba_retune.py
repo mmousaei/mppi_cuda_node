@@ -177,7 +177,7 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   mx_total = u[3] + contact_moment_x 
   my_total = u[4] + contact_moment_y 
   mz_total = u[5] + contact_moment_z  
-
+  
   x[0] += dt*x[3] 
   x[1] += dt*x[4]
   x[2] += dt*x[5]
@@ -543,7 +543,7 @@ class MPPI_Numba(object):
 
       # If else statements will be expensive
       dist_to_goal2 = weights_d[0]*((xgoal_d[0]-x_curr[0])**2) + weights_d[1]*((xgoal_d[1]-x_curr[1])**2) + weights_d[2]*((xgoal_d[2]-x_curr[2])**2) \
-                    + weights_d[3]*((xgoal_d[3]-x_curr[3])**2 + (xgoal_d[4]-x_curr[4])**2 + (xgoal_d[5]-x_curr[5])**2)\
+                    + weights_d[3]*((xgoal_d[3]-x_curr[3])**2 + (xgoal_d[4]-x_curr[4])**2 + 4*(xgoal_d[5]-x_curr[5])**2)\
                     + weights_d[4]*((xgoal_d[6]-x_curr[6])**2) + weights_d[5]*((xgoal_d[7]-x_curr[7])**2) + weights_d[6]*((xgoal_d[8]-x_curr[8])**2)\
                     + weights_d[7]*((xgoal_d[9]-x_curr[9])**2 + (xgoal_d[10]-x_curr[10])**2 + (xgoal_d[11]-x_curr[11])**2)\
                     + weights_d[8]*((u_nom[0]**2) + (u_nom[1]**2) + (u_nom[2]**2))\
@@ -826,7 +826,7 @@ if __name__ == "__main__":
         
         # dt = 0.02 tuning parameters
         # weights = np.array([150, 150, 300, 15, 1500, 1500, 3000, 100, 1, 5, 5, 1, 100]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
-        weights = np.array([4550, 4550, 5300, 150, 75000, 35000, 85000, 500, 1, 5, 5, 1, 500]),
+        weights = np.array([4550, 4550, 1300, 150, 75000, 35000, 85000, 500, 1, 5, 5, 1, 500]),
         inertia_mass = np.array([0.115125971, 0.116524229, 0.230387752, 2.302499999999999]) # I_xx, I_yy, I_zz, mass
     )
 

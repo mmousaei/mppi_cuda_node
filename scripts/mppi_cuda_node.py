@@ -19,6 +19,9 @@ from mavlink_transmitter import MavlinkTransmitter
 from geometry_msgs.msg import Vector3Stamped
 
 from mppi_numba_retune import MPPI_Numba, Config
+GRAVITY = False
+# from mppi_numba_retune_gravity import MPPI_Numba, Config
+# GRAVITY = True
 # from mppi_numba import MPPI_Numba, Config
 # from lqr_controller import LqrController
 from lqr_controller_gravity import LqrController
@@ -36,6 +39,7 @@ class ControlHexarotor:
         
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
         self.att_debug_pub = rospy.Publisher('/mppi_debug/att_debug', Vector3Stamped, queue_size=10)
+        self.target_debug_pub = rospy.Publisher('/mppi_debug/target_debug', PoseStamped, queue_size=10)
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
@@ -49,7 +53,7 @@ class ControlHexarotor:
         self.lqr_actions, self.mppi_dynamics_updates = [], []
 
         self.cfg = Config(
-            T=1.0,  # Horizon length in seconds
+            T=0.6,  # Horizon length in seconds
             dt=0.02,  # Time step
             num_control_rollouts=1024,  # Number of control sequences to sample
             num_controls=6,  # Dimensionality of control inputs
@@ -60,6 +64,8 @@ class ControlHexarotor:
         print("2")
 
         self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
+        if GRAVITY:
+            self.optimal_control_seq[:, 2] = self.hex_mass * 9.81
         self.mppi_controller = MPPI_Numba(self.cfg)
         self.mppi_params = {
             'dt': self.cfg.dt,
@@ -68,11 +74,11 @@ class ControlHexarotor:
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10.0,
-            'num_opt': 5,
+            'num_opt': 2,
             'u_std': np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01])*0.05,
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
-            'weights' : np.array([5200, 5200, 9200, 100, 100000, 100000, 1200000, 100, 10, 10, 10, 10, 0]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
+            'weights' : np.array([5200, 5200, 18200, 100, 100000, 100000, 1200000, 100, 20, 10, 10, 10, 10]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
             # 'weights' : np.array([x, y, z, v, r, p, y, w, f1, f2, m2, m1, t]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
             # 'inertia_mass' : np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass]) # I_xx, I_yy, I_zz, mass
             'inertia_mass' : np.array([0.115125971, 0.116524229, 0.230387752, 2.57]) # I_xx, I_yy, I_zz, mass
@@ -129,6 +135,16 @@ class ControlHexarotor:
         att_msg.vector.y = euler[1]
         att_msg.vector.z = euler[2]
         self.att_debug_pub.publish(att_msg)
+
+        if (hasattr(self, 'mppi_controller')):
+            if (self.mppi_controller is not None and data.header.seq % 10 == 0):
+                target_msg = PoseStamped()
+                target_msg.header.stamp = data.header.stamp
+                target_msg.pose.position.x = self.mppi_controller.params['xgoal'][0]
+                target_msg.pose.position.y = self.mppi_controller.params['xgoal'][1]
+                target_msg.pose.position.z = self.mppi_controller.params['xgoal'][2]
+
+                self.target_debug_pub.publish(target_msg)
 
     def target_callback(self, data):
         print("Target Received")
