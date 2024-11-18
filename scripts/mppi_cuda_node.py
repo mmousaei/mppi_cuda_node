@@ -7,8 +7,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 import numpy as np
 import rospy
-import torch
-import joblib
 
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
@@ -173,8 +171,8 @@ class ControlHexarotor:
         # angular_rates = [0, 0, 0]
         thrust = -control_inputs[2]
         # use transmitter to send control inputs
-        # if self.activate:
-        self.transmitter.send_attitude_control(angular_rates, thrust, quat)
+        if self.activate:
+            self.transmitter.send_attitude_control(angular_rates, thrust, quat)
         self.control_pub.publish(self.control_inputs)
 
     def compute_gravity_compensation(self):
