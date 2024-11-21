@@ -15,7 +15,8 @@ from geometry_msgs.msg import PoseStamped
 from tf.transformations import euler_from_quaternion
 from mavlink_transmitter import MavlinkTransmitter
 from geometry_msgs.msg import Vector3Stamped
-
+from core_trajectory_msgs.msg import FixedTrajectory
+from diagnostic_msgs.msg import KeyValue
 from mppi_numba_retune import MPPI_Numba, Config
 GRAVITY = False
 # from mppi_numba_retune_gravity import MPPI_Numba, Config
@@ -38,6 +39,7 @@ class ControlHexarotor:
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
         self.att_debug_pub = rospy.Publisher('/mppi_debug/att_debug', Vector3Stamped, queue_size=10)
         self.target_debug_pub = rospy.Publisher('/mppi_debug/target_debug', PoseStamped, queue_size=10)
+        self.fixed_traj_pub = rospy.Publisher("/fixed_trajectory", FixedTrajectory, queue_size=10)
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
@@ -45,6 +47,7 @@ class ControlHexarotor:
         self.current_state = np.zeros(12)  # Placeholder for state from sensors
         self.control_inputs = WrenchStamped()
         self.odom = Odometry()
+        self.last_time_pid_pos_publish = rospy.Time.now()
         
 
         self.states, self.actions, self.contact_forces, self.contact_torques, self.predicted_states, self.predicted_dynamics_agg, self.predicted_contact_forces, self.next_states, self.next_forces = [], [], [], [], [], [], [], [], []
@@ -112,6 +115,41 @@ class ControlHexarotor:
 
     def activate_callback(self, data):
         self.activate = data.data
+
+    def publish_position_pid(self):
+        x = self.odom.pose.pose.position.x
+        y = self.odom.pose.pose.position.y
+        z = self.odom.pose.pose.position.z
+
+
+        traj = FixedTrajectory()
+        traj.type = "Point"
+        att1 = KeyValue()
+        att1.key = "frame_id"
+        att1.value = "world"
+        traj.attributes.append(att1)
+        att2 = KeyValue()
+        att2.key = "height"
+        att2.value = str(z)
+        traj.attributes.append(att2)
+        att3 = KeyValue()
+        att3.key = "max_acceleration"
+        att3.value = str(0.4)
+        traj.attributes.append(att3)
+        att4 = KeyValue()
+        att4.key = "velocity"
+        att4.value = str(0.1)
+        traj.attributes.append(att4)
+        att5 = KeyValue()
+        att5.key = "x"
+        att5.value = str(x)
+        traj.attributes.append(att5)
+        att6 = KeyValue()
+        att6.key = "y"
+        att6.value = str(y)
+        traj.attributes.append(att6)
+
+        self.fixed_traj_pub.publish(traj)
     def odometry_callback(self, data):
         # Update current state with odometry data
         self.odom = data
@@ -173,6 +211,10 @@ class ControlHexarotor:
         # use transmitter to send control inputs
         if self.activate:
             self.transmitter.send_attitude_control(angular_rates, thrust, quat)
+            elapsed_time_pid = rospy.Time.now() - self.last_time_pid_pos_publish
+            if (elapsed_time_pid.to_sec() > 0.5):
+                self.publish_position_pid()
+
         self.control_pub.publish(self.control_inputs)
 
     def compute_gravity_compensation(self):
