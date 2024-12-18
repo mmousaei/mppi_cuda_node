@@ -127,17 +127,17 @@ class ControlHexarotor:
             'xgoal': np.array([1, -1, 2, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 17.782301664352417,
+            'lambda_weight': 20.0,
             'num_opt': 2,
-            'u_std': np.array([0.4       , 0.51262367, 0.48734699, 0.006     , 0.004     ,
-       0.00479975]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
-            'weights' : np.array([1.54400000e+04, 2.55382091e+04, 1.95739902e+04, 1.80000000e+03,
-       1.80000000e+03, 1.20000000e+03, 1.00000000e+05, 1.00000000e+05,
-       1.00000000e+05, 2.57381921e+04, 3.36000000e+04, 1.52413766e+04,
-       1.20000000e+00, 1.18098271e+03, 8.00000000e-01, 9.85520786e+02,
-       5.66759663e+04]),                 # w_terminal
+            'weights' : np.array([19300, 29300, 19300,       # w_pose_x, w_pose_y, w_pose_z
+                            1500, 1500, 1500,          # w_vel_x, w_vel_y, w_vel_z
+                            98500, 98500, 98500,   # w_att_roll, w_att_pitch, w_att_yaw
+                            28000, 28000, 18000,    # w_omega_x, w_omega_y, w_omega_z
+                            1, 1000, 1, 1000,             # w_cont, w_cont_m, w_cont_f, w_cont_M 
+                            60000]),                 # w_terminal
             "inertia_mass" : np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
         }
         print("3")
@@ -389,10 +389,10 @@ class ControlHexarotor:
         # print("compute control lqr")
         control_inputs = self.lqr_controller.lqr_control(self.current_state.copy())
         gravity_vector_body = self.compute_gravity_compensation()
-        # print(f"gravity_vector_body: {gravity_vector_body}")
+        print(f"gravity_vector_body: {gravity_vector_body}")
         # gravity_vector_body[0] = 0
         # gravity_vector_body[1] = 0
-        # print(f"command_before_gravity: {control_inputs[:3]}")
+        print(f"command_before_gravity: {control_inputs[:3]}")
         control_inputs[:3] -= (gravity_vector_body)
         next_state = self.dynamics_update(self.current_state, control_inputs, 0.02) * 0.4
         control_inputs = self.normalize_control_inputs_lqr(control_inputs, gravity_vector_body)

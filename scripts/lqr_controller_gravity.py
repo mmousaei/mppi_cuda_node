@@ -9,7 +9,7 @@ class LqrController:
         # Initialize LQR parameters
         qp = 20
         qv = 1
-        qo = 20
+        qo = 100
         qw = 1
         cf = 1
         cw = 1

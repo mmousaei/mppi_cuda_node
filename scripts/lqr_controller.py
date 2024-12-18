@@ -9,10 +9,10 @@ class LqrController:
         # Initialize LQR parameters
         qp = 50
         qv = 1
-        qo = 5
-        qw = 1
-        cf = 1
-        cw = 1
+        qo = 200
+        qw = 50
+        cf = 10
+        cw = 10
         self.Q = np.diag([qp, qp, qp*2, qv, qv, qv, qo*4, qo*4, qo*4, qw, qw, qw])
         self.R = np.diag([cf, cf, cf, cw, cw, cw])
         self.desired_x = np.zeros(12)
@@ -107,6 +107,8 @@ class LqrController:
             print("Error computing LQR gain matrix:", e)
             K = np.zeros((6, 12))  # Fallback to a zero matrix if LQR fails
 
+
+        print("K = ", K)
         # Compute the error state
         e = x - self.desired_x
         
