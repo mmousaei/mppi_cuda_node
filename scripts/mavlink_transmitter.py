@@ -7,8 +7,11 @@ from pymavlink.quaternion import QuaternionBase
 
 class MavlinkTransmitter():
 
-    def __init__(self):
-        self.master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
+    def __init__(self, port='/dev/ttyACM0', baudrate=57600):
+        # For real robot
+        self.master = mavutil.mavlink_connection(port, baud=baudrate)
+        # For simulation
+        # self.master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
         self.boot_time = time.time()
 
 

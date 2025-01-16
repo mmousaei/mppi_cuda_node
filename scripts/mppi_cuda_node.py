@@ -145,7 +145,7 @@ class ControlHexarotor:
         self.mppi_params = {
             'dt': self.cfg.dt,
             'x0': self.current_state,
-            'xgoal': np.array([1, -1, 2, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
+            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 17.782301664352417,
