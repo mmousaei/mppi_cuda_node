@@ -19,7 +19,6 @@ from core_trajectory_msgs.msg import FixedTrajectory
 from diagnostic_msgs.msg import KeyValue
 # from mppi_numba_retune import MPPI_Numba, Config
 from mppi_numba_gravity import MPPI_Numba, Config
-from one_step_mpc import OneStepMPC
 GRAVITY = True
 # from mppi_numba_retune_gravity import MPPI_Numba, Config
 # GRAVITY = True
@@ -99,12 +98,12 @@ class ControlHexarotor:
         self.states, self.actions, self.contact_forces, self.contact_torques, self.predicted_states, self.predicted_dynamics_agg, self.predicted_contact_forces, self.next_states, self.next_forces = [], [], [], [], [], [], [], [], []
         self.lqr_actions, self.mppi_dynamics_updates = [], []
 
-        constant = 6
+        
 
         self.cfg = Config(
-            T=0.64*2,  # Horizon length in seconds
-            dt=0.02*constant,  # Time step
-            num_control_rollouts=1024*8,  # Number of control sequences to sample
+            T=0.6,  # Horizon length in seconds
+            dt=0.02,  # Time step
+            num_control_rollouts=1024,  # Number of control sequences to sample
             num_controls=6,  # Dimensionality of control inputs
             num_states=12,  # Dimensionality of system states
             num_vis_state_rollouts=1,  # For visualization purposes
@@ -113,7 +112,7 @@ class ControlHexarotor:
 
         # Define the LPF parameters
         cutoff_freq = 10  # Cutoff frequency in Hz
-        sampling_rate = 1 / 0.02  # Sampling rate based on the timestep
+        sampling_rate = 1 / self.cfg.dt  # Sampling rate based on the timestep
         b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
         self.lpf = OnlineLPF(b, a, self.cfg.num_controls)
         print("2")
@@ -122,26 +121,6 @@ class ControlHexarotor:
         if GRAVITY:
             self.optimal_control_seq[:, 2] = self.hex_mass * 9.81
         self.mppi_controller = MPPI_Numba(self.cfg)
-        # self.mppi_params = {
-        #     'dt': self.cfg.dt,
-        #     'x0': self.current_state,
-        #     'xgoal': np.array([0, 0, 0.8, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
-        #     'goal_tolerance': 0.001,
-        #     'dist_weight': 2000,
-        #     'lambda_weight': 20,
-        #     'num_opt': 2,
-        #     'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
-        #     'vrange': np.array([-10.0, 10.0]),
-        #     'wrange': np.array([-0.1, 0.1]),
-        #     'weights' : np.array([19300, 22300, 19300,
-        #                           3500, 3500, 5500,
-        #                           98500, 98500, 98500,
-        #                           28000, 28000, 18000,
-        #                           1, 100, 1, 100,
-        #                           6000]),
-
-        #     "inertia_mass" : np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
-        # }
         self.mppi_params = {
             'dt': self.cfg.dt,
             'x0': self.current_state,
@@ -175,25 +154,6 @@ class ControlHexarotor:
         self.lqr_controller.J = self.inertia_matrix
         self.lqr_controller.desired_x = self.mppi_params['xgoal']
         print("4")
-        self.gt_buffer = []       # buffer to store ground truth states (each is shape (12,))
-        self.control_buffer = []  # buffer to store the applied control inputs (each is shape (6,))
-
-        self.mpc_params = {
-            'inertia': self.inertia_flat,
-            'mass': self.hex_mass,
-            'gravity': 9.81,
-            'max_force': 20.0,
-            'max_torque': 0.05,
-            'control_weight': 0.01,
-            'tracking_weight_pos': 10,
-            'tracking_weight_vel': 1,
-            'tracking_weight_att': 800,
-            'tracking_weight_ang_vel': 400,
-            'smoothness_weight': 0.01,
-            'dt': 0.3
-        }
-
-        self.mpc = OneStepMPC(self.mpc_params)
 
 
     def initialize_hexarotor_parameters(self):
@@ -328,18 +288,7 @@ class ControlHexarotor:
         control_inputs[0] = control_inputs[0] / (29.64) * 0.3
         control_inputs[1] = control_inputs[1] / (26.96) * 0.3
         # control_inputs[2] = control_inputs[2] / (61.78) * 1.19
-        control_inputs[2] = control_inputs[2] / (61.78) * 0.591 #* 1.05
-        control_inputs[3:6] = control_inputs[3:6] * 2
-        # control_inputs[3:5] = control_inputs[3:5] * 2
-        # control_inputs[5] = control_inputs[5] * 2
-        return control_inputs
-    def normalize_control_inputs_mpc(self, control_inputs):
-        # print("normalize control inputs")
-
-        control_inputs[0] = control_inputs[0] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
-        control_inputs[1] = control_inputs[1] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
-        # control_inputs[2] = control_inputs[2] / (61.78) * 1.19
-        control_inputs[2] = control_inputs[2] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 2 / 1.97              *  0.8
+        control_inputs[2] = control_inputs[2] / (61.78) * 0.591
         control_inputs[3:6] = control_inputs[3:6] * 2
         # control_inputs[3:5] = control_inputs[3:5] * 2
         # control_inputs[5] = control_inputs[5] * 2
@@ -394,7 +343,7 @@ class ControlHexarotor:
 
         self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
-        control_inputs_mppi = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
+        control_inputs = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
         gravity_vector_body = self.compute_gravity_compensation()
         if not GRAVITY:
             control_inputs[:3] -= gravity_vector_body
@@ -402,35 +351,37 @@ class ControlHexarotor:
         # control_inputs[2] += self.Ki_z * self.integral_error_z  # Adding I term to z-direction
 
         
-        # One step mpc
-        zero_guess = np.zeros(6)
-        # control_inputs = self.mpc.compute_control(self.current_state, self.mppi_controller.params['xgoal'], control_inputs_mppi, self.mpc_params['dt'])
-        mpc_state = self.current_state.copy()
-        # mpc_state[6:] = np.zeros(6)
-        mpc_guess = control_inputs_mppi.copy()
-        mpc_guess[3:] = np.zeros(3)
         
-        control_inputs_mpc = self.mpc.compute_control(mpc_state, self.mppi_controller.params['xgoal'], mpc_guess, self.mpc_params['dt'])
-
-        control_inputs = self.normalize_control_inputs_mpc(control_inputs_mpc.copy())
         filtered_controls = self.lpf.filter(control_inputs.copy())
-        # filtered_controls = self.normalize_control_inputs(filtered_controls.copy(), gravity_vector_body)
-        # control_inputs = self.normalize_control_inputs(control_inputs.copy(), gravity_vector_body)
-        
-        next_state = self.dynamics_update(self.current_state.copy(), control_inputs_mpc.copy(), 0.3) / 10000
+        filtered_controls = self.normalize_control_inputs(filtered_controls.copy(), gravity_vector_body)
+        control_inputs = self.normalize_control_inputs(control_inputs.copy(), gravity_vector_body)
+        # next_state = self.dynamics_update(self.current_state.copy(), filtered_controls.copy(), 0.02*7) * 0.5
         # control_inputs_lqr = self.lqr_controller.lqr_control(self.current_state.copy()) / 5
 
         
 
         
+        
 
-        # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], control_inputs[5]])
+        # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
+        # rate_controls = np.array([next_state[0], next_state[1], next_state[2], next_state[9], next_state[10], next_state[11]])
+        
+        
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], control_inputs_lqr[5]])
+
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], next_state[11]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], filtered_controls[4], control_inputs_lqr[5]])
 
         rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], filtered_controls[3], filtered_controls[4], filtered_controls[5]])
-        # rate_controls = np.array([next_state[3], next_state[4], -next_state[5], next_state[9], next_state[10], next_state[11]])
-        # rate_controls = np.array([-next_state[3], -next_state[4], -next_state[5], control_inputs[3], control_inputs[4], control_inputs[5]])
-        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], next_state[9], next_state[10], -next_state[11]])
 
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], filtered_controls[5]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], next_state[9], next_state[10], next_state[11]])
+        
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs[3], control_inputs[4], control_inputs[5]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs[3], control_inputs[4], next_state[11]])
+        
+        # rate_controls = self.normalize_control_inputs(rate_controls)
+        # filtered_controls = self.lpf.filter(rate_controls)
         self.publish_cmd(rate_controls)
         # self.publish_cmd(control_inputs)
 
@@ -448,8 +399,6 @@ class ControlHexarotor:
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], next_state[11]])
         rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], control_inputs[5]])
-
-
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
         # rate_controls = self.normalize_control_inputs_lqr(control_inputs, gravity_vector_body)
         # rate_controls[:3] += (gravity_vector_body / 45.45)
@@ -472,41 +421,6 @@ class ControlHexarotor:
         while not rospy.is_shutdown():
             # self.compute_control()
             self.compute_control_force_angular_rate()
-            # Accumulate ground-truth state and applied control
-            self.gt_buffer.append(self.current_state.copy())              # store the newest odom-based state
-            self.control_buffer.append(self.optimal_control_seq[0].copy()) # store the control used at this step
-            
-            debug_dynamics = False
-            # Perform comparison every 500 steps
-            if debug_dynamics:
-                if len(self.gt_buffer) == 501:
-                    # --- 1) Extract the initial state for this 500-step window ---
-                    initial_state = self.gt_buffer[len(self.gt_buffer)-501].copy()
-
-                    # --- 2) Re-simulate 500 steps using stored control inputs ---
-                    simulated_state = initial_state
-                    simulated_traj = np.zeros((500, 12), dtype=np.float32)
-                    for i in range(500):
-                        simulated_state = self.dynamics_update(simulated_state, self.control_buffer[i], self.cfg.dt)
-                        simulated_traj[i] = simulated_state
-
-                    # --- 3) Align and compare simulated trajectory to actual ground truth ---
-                    # Ground truth: steps 0 to 499 align with simulated trajectory
-                    gt_array = np.array(self.gt_buffer[:500])  # Align horizon with simulated trajectory
-                    rmse_each_dim = np.sqrt(np.mean((simulated_traj - gt_array) ** 2, axis=0))
-
-                    # --- 4) Log RMSE ---
-                    rmse_str = ', '.join([f"{val:0.4f}" for val in rmse_each_dim])
-                    rospy.loginfo(f"[Step {self.cnt}] 500-step horizon RMSE per state dimension: [{rmse_str}]")
-
-                    # --- 5) Shift buffers to next horizon ---
-                    self.gt_buffer.pop(0)       # Remove the first ground truth state
-                    self.control_buffer.pop(0)  # Remove the first control input
-                    # if self.cnt == 1000:  # or any specific step for debugging
-                    #     print("Initial State:", initial_state)
-                    #     print("Ground Truth Horizon:", self.gt_buffer[:10])
-                    #     print("Simulated Horizon:", simulated_traj[:10])
-            self.cnt += 1
             # self.compute_control_lqr()
             rate.sleep()
 

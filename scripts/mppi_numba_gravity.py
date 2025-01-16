@@ -61,6 +61,8 @@ class Config:
     self.num_vis_state_rollouts = min([self.num_vis_state_rollouts, self.num_control_rollouts])
     self.num_vis_state_rollouts = max([1, self.num_vis_state_rollouts])
 
+    print("num_steps: ", self.num_steps)
+
 DEFAULT_OBS_COST = 1e3
 DEFAULT_DIST_WEIGHT = 10
 # Define stage and terminal cost weights for each state dimension
@@ -791,19 +793,30 @@ class MPPI_Numba(object):
       abs_thread_id = cuda.grid(1)
       num_timesteps = noise_samples_d.shape[1]
       num_controls = noise_samples_d.shape[2]
-
-      denom = 1
-      for i in range(num_controls):
-          for t in range(num_timesteps):
-              # Determine scaling for variance
-              if t < num_timesteps // 2:  # First half
-                  scale = (t / (num_timesteps // 2)) * (denom - 1) / denom + 1 / denom  # Interpolation from 0.01 to 1
-              else:  # Second half
-                  scale = 1.0
+  
+      # denom = 1
+      # for i in range(num_controls):
+      #     for t in range(num_timesteps):
+      #         # Determine scaling for variance
+      #         if t < num_timesteps // 2:  # First half
+      #             scale = (t / (num_timesteps // 2)) * (denom - 1) / denom + 1 / denom  # Interpolation from 0.01 to 1
+      #         else:  # Second half
+      #             scale = 1.0
               
-              # Generate noise with scaled variance
-              scaled_std = u_std_d[i] * scale
-              noise_samples_d[block_id, t, i] = scaled_std * xoroshiro128p_normal_float32(rng_states, abs_thread_id)
+      #         # Generate noise with scaled variance
+      #         # scaled_std = u_std_d[i] * scale
+      #         scaled_std = u_std_d[i] * 1
+      #         noise_samples_d[block_id, t, i] = scaled_std * xoroshiro128p_normal_float32(rng_states, abs_thread_id)
+
+      denom = 10
+      for t in range(num_timesteps):
+        for i in range(num_controls):
+            # Linearly scaled standard deviation
+            scale = 1.0 - ((t / num_timesteps * (denom - 1)) / denom)
+            scaled_std = u_std_d[i] * scale
+
+            # Generate noise with scaled variance
+            noise_samples_d[block_id, t, i] = scaled_std * xoroshiro128p_normal_float32(rng_states, abs_thread_id)
 
   # @staticmethod
   # @cuda.jit(fastmath=True)
@@ -850,15 +863,15 @@ class MPPI_Numba(object):
 if __name__ == "__main__":
     num_controls = 6
     num_states = 12
-    cfg = Config(T = 0.6,
-            dt = 0.02,
+    cfg = Config(T = 0.64*2,
+            dt = 0.02*6,
             num_control_rollouts = 1024,#int(2e4), # Same as number of blocks, can be more than 1024
             num_controls = num_controls,
             num_states = num_states,
             num_vis_state_rollouts = 1,
             seed = 1)
     x0 = np.zeros(12)
-    xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, 0.3, 0, 0, 0])
+    xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
 
 
     mppi_params = dict(
@@ -871,15 +884,20 @@ if __name__ == "__main__":
         goal_tolerance=0.001,
         dist_weight=2000, #  Weight for dist-to-goal cost.
         # dist_weights = np.array([200, 200, 500, 0, 0, 0, 1000, 1000, 2000, 0, 0, 0]),
-        lambda_weight=10, # Temperature param in MPPI
+        lambda_weight=20, # Temperature param in MPPI
         num_opt=2, # Number of steps in each solve() function call.
 
         # Control and sample specification
-        u_std=np.array([1, 1, 1, 0.01, 0.01, 0.006]), # Noise std for sampling linear and angular velocities.
+        u_std=np.array([0.8, 0.8, 0.5, 0.005, 0.005, 0.005]), # Noise std for sampling linear and angular velocities.
         vrange = np.array([-60.0, 60.0]), # Linear velocity range.
         wrange=np.array([-0.1, 0.1]), # Angular velocity range.
         # weights = np.array([150, 150, 300, 15, 1500, 1500, 3000, 100, 1, 5, 5, 1, 100]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
-        weights = np.array([4550, 4*4550, 5300, 150, 4*150, 150, 5*75000, 5*35000, 2*85000, 500, 500, 1000, 1, 5, 5, 1, 500]), # w_pose_x, w_pose_y, w_pose_z, w_vel_x, w_vel_y, w_vel_z, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
+        weights = np.array([29300, 42300, 19300,
+                                  3500, 3500, 5500,
+                                  98500, 98500, 98500,
+                                  8000, 8000, 18000,
+                                  1, 100, 1, 100,
+                                  6000]),
         inertia_mass = np.array([0.115125971, 0.116524229, 0.230387752, 7.00]) # I_xx, I_yy, I_zz, mass
     )
 

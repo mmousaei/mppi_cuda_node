@@ -19,7 +19,6 @@ from core_trajectory_msgs.msg import FixedTrajectory
 from diagnostic_msgs.msg import KeyValue
 # from mppi_numba_retune import MPPI_Numba, Config
 from mppi_numba_gravity import MPPI_Numba, Config
-from one_step_mpc import OneStepMPC
 GRAVITY = True
 # from mppi_numba_retune_gravity import MPPI_Numba, Config
 # GRAVITY = True
@@ -102,7 +101,7 @@ class ControlHexarotor:
         constant = 6
 
         self.cfg = Config(
-            T=0.64*2,  # Horizon length in seconds
+            T=0.64,  # Horizon length in seconds
             dt=0.02*constant,  # Time step
             num_control_rollouts=1024*8,  # Number of control sequences to sample
             num_controls=6,  # Dimensionality of control inputs
@@ -122,43 +121,24 @@ class ControlHexarotor:
         if GRAVITY:
             self.optimal_control_seq[:, 2] = self.hex_mass * 9.81
         self.mppi_controller = MPPI_Numba(self.cfg)
-        # self.mppi_params = {
-        #     'dt': self.cfg.dt,
-        #     'x0': self.current_state,
-        #     'xgoal': np.array([0, 0, 0.8, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
-        #     'goal_tolerance': 0.001,
-        #     'dist_weight': 2000,
-        #     'lambda_weight': 20,
-        #     'num_opt': 2,
-        #     'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
-        #     'vrange': np.array([-10.0, 10.0]),
-        #     'wrange': np.array([-0.1, 0.1]),
-        #     'weights' : np.array([19300, 22300, 19300,
-        #                           3500, 3500, 5500,
-        #                           98500, 98500, 98500,
-        #                           28000, 28000, 18000,
-        #                           1, 100, 1, 100,
-        #                           6000]),
-
-        #     "inertia_mass" : np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
-        # }
         self.mppi_params = {
             'dt': self.cfg.dt,
             'x0': self.current_state,
-            'xgoal': np.array([1, -1, 2, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
+            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 17.782301664352417,
+            'lambda_weight': 20,
             'num_opt': 2,
-            'u_std': np.array([0.4       , 0.51262367, 0.48734699, 0.006     , 0.004     ,
-       0.00479975]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
-            'weights' : np.array([1.54400000e+04, 2.55382091e+04, 1.95739902e+04, 1.80000000e+03,
-       1.80000000e+03, 1.20000000e+03, 1.00000000e+05, 1.00000000e+05,
-       1.00000000e+05, 2.57381921e+04, 3.36000000e+04, 1.52413766e+04,
-       1.20000000e+00, 1.18098271e+03, 8.00000000e-01, 9.85520786e+02,
-       5.66759663e+04]),                 # w_terminal
+            'weights' : np.array([19300, 22300, 19300,
+                                  1500, 1500, 1500,
+                                  98500, 98500, 98500,
+                                  28000, 28000, 18000,
+                                  1, 1000, 1, 1000,
+                                  60000]),
+
             "inertia_mass" : np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
         }
         print("3")
@@ -177,23 +157,6 @@ class ControlHexarotor:
         print("4")
         self.gt_buffer = []       # buffer to store ground truth states (each is shape (12,))
         self.control_buffer = []  # buffer to store the applied control inputs (each is shape (6,))
-
-        self.mpc_params = {
-            'inertia': self.inertia_flat,
-            'mass': self.hex_mass,
-            'gravity': 9.81,
-            'max_force': 20.0,
-            'max_torque': 0.05,
-            'control_weight': 0.01,
-            'tracking_weight_pos': 10,
-            'tracking_weight_vel': 1,
-            'tracking_weight_att': 800,
-            'tracking_weight_ang_vel': 400,
-            'smoothness_weight': 0.01,
-            'dt': 0.3
-        }
-
-        self.mpc = OneStepMPC(self.mpc_params)
 
 
     def initialize_hexarotor_parameters(self):
@@ -328,18 +291,7 @@ class ControlHexarotor:
         control_inputs[0] = control_inputs[0] / (29.64) * 0.3
         control_inputs[1] = control_inputs[1] / (26.96) * 0.3
         # control_inputs[2] = control_inputs[2] / (61.78) * 1.19
-        control_inputs[2] = control_inputs[2] / (61.78) * 0.591 #* 1.05
-        control_inputs[3:6] = control_inputs[3:6] * 2
-        # control_inputs[3:5] = control_inputs[3:5] * 2
-        # control_inputs[5] = control_inputs[5] * 2
-        return control_inputs
-    def normalize_control_inputs_mpc(self, control_inputs):
-        # print("normalize control inputs")
-
-        control_inputs[0] = control_inputs[0] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
-        control_inputs[1] = control_inputs[1] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
-        # control_inputs[2] = control_inputs[2] / (61.78) * 1.19
-        control_inputs[2] = control_inputs[2] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 2 / 1.97              *  0.8
+        control_inputs[2] = control_inputs[2] / (61.78) * 0.591
         control_inputs[3:6] = control_inputs[3:6] * 2
         # control_inputs[3:5] = control_inputs[3:5] * 2
         # control_inputs[5] = control_inputs[5] * 2
@@ -394,7 +346,7 @@ class ControlHexarotor:
 
         self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
-        control_inputs_mppi = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
+        control_inputs = self.optimal_control_seq[0, :]  # Use the first set of control inputs from the optimized sequence
         gravity_vector_body = self.compute_gravity_compensation()
         if not GRAVITY:
             control_inputs[:3] -= gravity_vector_body
@@ -402,35 +354,37 @@ class ControlHexarotor:
         # control_inputs[2] += self.Ki_z * self.integral_error_z  # Adding I term to z-direction
 
         
-        # One step mpc
-        zero_guess = np.zeros(6)
-        # control_inputs = self.mpc.compute_control(self.current_state, self.mppi_controller.params['xgoal'], control_inputs_mppi, self.mpc_params['dt'])
-        mpc_state = self.current_state.copy()
-        # mpc_state[6:] = np.zeros(6)
-        mpc_guess = control_inputs_mppi.copy()
-        mpc_guess[3:] = np.zeros(3)
         
-        control_inputs_mpc = self.mpc.compute_control(mpc_state, self.mppi_controller.params['xgoal'], mpc_guess, self.mpc_params['dt'])
-
-        control_inputs = self.normalize_control_inputs_mpc(control_inputs_mpc.copy())
         filtered_controls = self.lpf.filter(control_inputs.copy())
-        # filtered_controls = self.normalize_control_inputs(filtered_controls.copy(), gravity_vector_body)
-        # control_inputs = self.normalize_control_inputs(control_inputs.copy(), gravity_vector_body)
-        
-        next_state = self.dynamics_update(self.current_state.copy(), control_inputs_mpc.copy(), 0.3) / 10000
+        filtered_controls = self.normalize_control_inputs(filtered_controls.copy(), gravity_vector_body)
+        control_inputs = self.normalize_control_inputs(control_inputs.copy(), gravity_vector_body)
+        # next_state = self.dynamics_update(self.current_state.copy(), filtered_controls.copy(), 0.02*7) * 0.5
         # control_inputs_lqr = self.lqr_controller.lqr_control(self.current_state.copy()) / 5
 
         
 
         
+        
 
-        # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], control_inputs[5]])
+        # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
+        # rate_controls = np.array([next_state[0], next_state[1], next_state[2], next_state[9], next_state[10], next_state[11]])
+        
+        
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], control_inputs_lqr[5]])
+
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], next_state[11]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], filtered_controls[4], control_inputs_lqr[5]])
 
         rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], filtered_controls[3], filtered_controls[4], filtered_controls[5]])
-        # rate_controls = np.array([next_state[3], next_state[4], -next_state[5], next_state[9], next_state[10], next_state[11]])
-        # rate_controls = np.array([-next_state[3], -next_state[4], -next_state[5], control_inputs[3], control_inputs[4], control_inputs[5]])
-        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], next_state[9], next_state[10], -next_state[11]])
 
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs_lqr[3], control_inputs_lqr[4], filtered_controls[5]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], next_state[9], next_state[10], next_state[11]])
+        
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs[3], control_inputs[4], control_inputs[5]])
+        # rate_controls = np.array([filtered_controls[0], filtered_controls[1], filtered_controls[2], control_inputs[3], control_inputs[4], next_state[11]])
+        
+        # rate_controls = self.normalize_control_inputs(rate_controls)
+        # filtered_controls = self.lpf.filter(rate_controls)
         self.publish_cmd(rate_controls)
         # self.publish_cmd(control_inputs)
 
@@ -448,8 +402,6 @@ class ControlHexarotor:
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], next_state[11]])
         rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], control_inputs[3], control_inputs[4], control_inputs[5]])
-
-
         # rate_controls = np.array([control_inputs[0], control_inputs[1], control_inputs[2], next_state[9], next_state[10], next_state[11]])
         # rate_controls = self.normalize_control_inputs_lqr(control_inputs, gravity_vector_body)
         # rate_controls[:3] += (gravity_vector_body / 45.45)

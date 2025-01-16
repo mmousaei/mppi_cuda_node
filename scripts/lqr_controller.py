@@ -108,7 +108,7 @@ class LqrController:
             K = np.zeros((6, 12))  # Fallback to a zero matrix if LQR fails
 
 
-        print("K = ", K)
+        # print("K = ", K)
         # Compute the error state
         e = x - self.desired_x
         
