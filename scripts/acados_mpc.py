@@ -23,7 +23,7 @@ class OneStepMPC:
         self.model = self.build_full_hexarotor_model()
 
         # Set up horizon
-        self.horizon = 2  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
+        self.horizon = 3  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
         self.ocp_solver = self.build_acados_ocp_solver()
         self.initialized = True
 
@@ -143,15 +143,15 @@ class OneStepMPC:
 
         # Cost weighting matrices
         Q = np.diag([
-            params['tracking_weight_pos']*8,    # px
-            params['tracking_weight_pos']*8,    # py
-            params['tracking_weight_pos']*26,    # pz
+            params['tracking_weight_pos'],    # px
+            params['tracking_weight_pos'],    # py
+            params['tracking_weight_pos']*16,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
-            params['tracking_weight_att']*16,    # phi
-            params['tracking_weight_att']*16,    # theta
-            params['tracking_weight_att']*16,    # psi
+            params['tracking_weight_att'],    # phi
+            params['tracking_weight_att'],    # theta
+            params['tracking_weight_att'],    # psi
             params['tracking_weight_ang_vel'],# p
             params['tracking_weight_ang_vel'],# q
             params['tracking_weight_ang_vel'] # r

@@ -402,16 +402,17 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     else
     {
         // set time_steps
-    double time_step = 0.3;
+    double time_step = 0.10000000000000002;
         for (int i = 0; i < N; i++)
         {
             ocp_nlp_in_set(nlp_config, nlp_dims, nlp_in, i, "Ts", &time_step);
         }
         // set cost scaling
         double* cost_scaling = malloc((N+1)*sizeof(double));
-        cost_scaling[0] = 0.3;
-        cost_scaling[1] = 0.3;
-        cost_scaling[2] = 1;
+        cost_scaling[0] = 0.10000000000000002;
+        cost_scaling[1] = 0.10000000000000002;
+        cost_scaling[2] = 0.10000000000000002;
+        cost_scaling[3] = 1;
         for (int i = 0; i <= N; i++)
         {
             ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, i, "scaling", &cost_scaling[i]);
@@ -442,12 +443,12 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W_0[3+(NY0) * 3] = 3;
     W_0[4+(NY0) * 4] = 3;
     W_0[5+(NY0) * 5] = 3;
-    W_0[6+(NY0) * 6] = 1280;
-    W_0[7+(NY0) * 7] = 1280;
-    W_0[8+(NY0) * 8] = 1280;
-    W_0[9+(NY0) * 9] = 500;
-    W_0[10+(NY0) * 10] = 500;
-    W_0[11+(NY0) * 11] = 500;
+    W_0[6+(NY0) * 6] = 2400;
+    W_0[7+(NY0) * 7] = 2400;
+    W_0[8+(NY0) * 8] = 2400;
+    W_0[9+(NY0) * 9] = 1000;
+    W_0[10+(NY0) * 10] = 1000;
+    W_0[11+(NY0) * 11] = 1000;
     W_0[12+(NY0) * 12] = 0.1;
     W_0[13+(NY0) * 13] = 0.1;
     W_0[14+(NY0) * 14] = 0.1;
@@ -498,12 +499,12 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W[3+(NY) * 3] = 3;
     W[4+(NY) * 4] = 3;
     W[5+(NY) * 5] = 3;
-    W[6+(NY) * 6] = 1280;
-    W[7+(NY) * 7] = 1280;
-    W[8+(NY) * 8] = 1280;
-    W[9+(NY) * 9] = 500;
-    W[10+(NY) * 10] = 500;
-    W[11+(NY) * 11] = 500;
+    W[6+(NY) * 6] = 2400;
+    W[7+(NY) * 7] = 2400;
+    W[8+(NY) * 8] = 2400;
+    W[9+(NY) * 9] = 1000;
+    W[10+(NY) * 10] = 1000;
+    W[11+(NY) * 11] = 1000;
     W[12+(NY) * 12] = 0.1;
     W[13+(NY) * 13] = 0.1;
     W[14+(NY) * 14] = 0.1;
