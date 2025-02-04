@@ -116,7 +116,7 @@ class OneStepMPC:
             cost_function,
             initial_guess,
             bounds=bounds,
-            method='L-BFGS-B'
+            method='L-BFGS-B',
         )
 
         # Update previous control input

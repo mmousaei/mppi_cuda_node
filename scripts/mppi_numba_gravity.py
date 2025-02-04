@@ -808,7 +808,7 @@ class MPPI_Numba(object):
       #         scaled_std = u_std_d[i] * 1
       #         noise_samples_d[block_id, t, i] = scaled_std * xoroshiro128p_normal_float32(rng_states, abs_thread_id)
 
-      denom = 10
+      denom = 20
       for t in range(num_timesteps):
         for i in range(num_controls):
             # Linearly scaled standard deviation
@@ -863,49 +863,46 @@ class MPPI_Numba(object):
 if __name__ == "__main__":
     num_controls = 6
     num_states = 12
-    cfg = Config(T = 0.64*2,
-            dt = 0.02*6,
-            num_control_rollouts = 1024,#int(2e4), # Same as number of blocks, can be more than 1024
-            num_controls = num_controls,
-            num_states = num_states,
-            num_vis_state_rollouts = 1,
-            seed = 1)
+    cfg = Config(
+            T=2,                # Horizon length in seconds
+            dt=0.2,        # Time step
+            num_control_rollouts=1024,
+            num_controls=6,
+            num_states=12,
+            num_vis_state_rollouts=1,
+            seed=1
+        )
     x0 = np.zeros(12)
-    xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-
-
-    mppi_params = dict(
-        # Task specification
-        dt=cfg.dt,
-        x0=x0, # Start state
-        xgoal=xgoal, # Goal position
-
-        # For risk-aware min time planning
-        goal_tolerance=0.001,
-        dist_weight=2000, #  Weight for dist-to-goal cost.
-        # dist_weights = np.array([200, 200, 500, 0, 0, 0, 1000, 1000, 2000, 0, 0, 0]),
-        lambda_weight=20, # Temperature param in MPPI
-        num_opt=2, # Number of steps in each solve() function call.
-
-        # Control and sample specification
-        u_std=np.array([0.8, 0.8, 0.5, 0.005, 0.005, 0.005]), # Noise std for sampling linear and angular velocities.
-        vrange = np.array([-60.0, 60.0]), # Linear velocity range.
-        wrange=np.array([-0.1, 0.1]), # Angular velocity range.
-        # weights = np.array([150, 150, 300, 15, 1500, 1500, 3000, 100, 1, 5, 5, 1, 100]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
-        weights = np.array([29300, 42300, 19300,
-                                  3500, 3500, 5500,
-                                  98500, 98500, 98500,
-                                  8000, 8000, 18000,
-                                  1, 100, 1, 100,
-                                  6000]),
-        inertia_mass = np.array([0.115125971, 0.116524229, 0.230387752, 7.00]) # I_xx, I_yy, I_zz, mass
-    )
+    # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    
+    mppi_params = {
+            'dt': cfg.dt,
+            'x0': x0,
+            'xgoal': xgoal,
+            'goal_tolerance': 0.001,
+            'dist_weight': 2000,
+            'lambda_weight': 20,
+            'num_opt': 4,
+            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
+            'vrange': np.array([-10.0, 10.0]),
+            'wrange': np.array([-0.1, 0.1]),
+            'weights': np.array([
+                400, 400, 200,
+                100, 100, 100,
+                500, 500, 500,
+                100, 100, 100,
+                1, 100, 1, 100, 500
+            ]),
+            "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
+        }
 
     mppi_controller = MPPI_Numba(cfg)
     mppi_controller.set_params(mppi_params)
 
     # Loop
-    max_steps = 500
+    max_steps = 2000
     xhist = np.zeros((max_steps+1, num_states))*np.nan
     uhist = np.zeros((max_steps, num_controls))*np.nan
     xhist[0] = x0
@@ -930,7 +927,7 @@ if __name__ == "__main__":
         uhist[t] = u_curr
 
         # Simulate state forward 
-        xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_curr, cfg.dt)
+        xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_curr, cfg.dt/10)
         # print("x: ", xhist[t+1, :])
         print(t)
         # Update MPPI state (x0, useq)

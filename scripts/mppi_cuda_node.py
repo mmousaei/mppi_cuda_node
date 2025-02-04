@@ -19,7 +19,9 @@ from core_trajectory_msgs.msg import FixedTrajectory
 from diagnostic_msgs.msg import KeyValue
 # from mppi_numba_retune import MPPI_Numba, Config
 from mppi_numba_gravity import MPPI_Numba, Config
-from one_step_mpc import OneStepMPC
+# from one_step_mpc import OneStepMPC
+from acados_mpc import OneStepMPC
+# from one_step_mpc_casadi import OneStepMPC
 GRAVITY = True
 # from mppi_numba_retune_gravity import MPPI_Numba, Config
 # GRAVITY = True
@@ -79,7 +81,7 @@ class ControlHexarotor:
 
         
         self.initialize_hexarotor_parameters()
-        self.frame_rate = 50
+        self.frame_rate = 500
         self.cnt = 0
         
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
@@ -177,18 +179,33 @@ class ControlHexarotor:
         print("4")
         self.gt_buffer = []       # buffer to store ground truth states (each is shape (12,))
         self.control_buffer = []  # buffer to store the applied control inputs (each is shape (6,))
+        # # works for other mpcs except for acados
+        # self.mpc_params = {
+        #     'inertia': self.inertia_flat,
+        #     'mass': self.hex_mass,
+        #     'gravity': 9.81,
+        #     'max_force': 20.0,
+        #     'max_torque': 0.05,
+        #     'control_weight': 0.01,
+        #     'tracking_weight_pos': 10,
+        #     'tracking_weight_vel': 1,
+        #     'tracking_weight_att': 800,
+        #     'tracking_weight_ang_vel': 400,
+        #     'smoothness_weight': 0.01,
+        #     'dt': 0.3
+        # }
 
         self.mpc_params = {
             'inertia': self.inertia_flat,
             'mass': self.hex_mass,
             'gravity': 9.81,
             'max_force': 20.0,
-            'max_torque': 0.05,
-            'control_weight': 0.01,
+            'max_torque': 0.2,
+            'control_weight': 0.1,
             'tracking_weight_pos': 10,
-            'tracking_weight_vel': 1,
-            'tracking_weight_att': 800,
-            'tracking_weight_ang_vel': 400,
+            'tracking_weight_vel': 3,
+            'tracking_weight_att': 80,
+            'tracking_weight_ang_vel': 500,
             'smoothness_weight': 0.01,
             'dt': 0.3
         }
@@ -336,11 +353,11 @@ class ControlHexarotor:
     def normalize_control_inputs_mpc(self, control_inputs):
         # print("normalize control inputs")
 
-        control_inputs[0] = control_inputs[0] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
-        control_inputs[1] = control_inputs[1] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65
+        control_inputs[0] = control_inputs[0] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 5
+        control_inputs[1] = control_inputs[1] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 5
         # control_inputs[2] = control_inputs[2] / (61.78) * 1.19
-        control_inputs[2] = control_inputs[2] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 2 / 1.97              *  0.8
-        control_inputs[3:6] = control_inputs[3:6] * 2
+        control_inputs[2] = control_inputs[2] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 2 / 1.97 * 0.65 / 3.72  * 0.656 / 0.627 
+        control_inputs[3:6] = control_inputs[3:6] * 4
         # control_inputs[3:5] = control_inputs[3:5] * 2
         # control_inputs[5] = control_inputs[5] * 2
         return control_inputs
@@ -408,7 +425,7 @@ class ControlHexarotor:
         mpc_state = self.current_state.copy()
         # mpc_state[6:] = np.zeros(6)
         mpc_guess = control_inputs_mppi.copy()
-        mpc_guess[3:] = np.zeros(3)
+        # mpc_guess[3:] = np.zeros(3)
         
         control_inputs_mpc = self.mpc.compute_control(mpc_state, self.mppi_controller.params['xgoal'], mpc_guess, self.mpc_params['dt'])
 

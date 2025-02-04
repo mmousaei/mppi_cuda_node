@@ -34,6 +34,7 @@ include_directories(
 ## Mark executable scripts (Python etc.) for installation
 catkin_install_python(PROGRAMS
   scripts/mppi_cuda_node.py
+  scripts/mpc_mppi.py
   scripts/mppi_numba.py
   scripts/mavlink_transmitter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
