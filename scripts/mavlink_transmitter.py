@@ -1,5 +1,6 @@
 import time
 import math
+import os
 # Import mavutil
 from pymavlink import mavutil
 # Imports for attitude
@@ -8,10 +9,13 @@ from pymavlink.quaternion import QuaternionBase
 class MavlinkTransmitter():
 
     def __init__(self, port='/dev/ttyACM0', baudrate=57600):
-        # For real robot
-        # self.master = mavutil.mavlink_connection(port, baud=baudrate)
-        # For simulation
-        self.master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
+        # Check if the port exists
+        if os.path.exists(port):
+            print(f"Found port {port}, connecting via serial with baudrate {baudrate}.")
+            self.master = mavutil.mavlink_connection(port, baud=baudrate)
+        else:
+            print("Port not found. Using UDP input for simulation.")
+            self.master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
         self.boot_time = time.time()
 
 

@@ -381,9 +381,11 @@ class ControlHexarotor:
         Example scaling for MPC outputs -> body rates + thrust.
         Adjust as needed for your vehicle.
         """
-        ctrl[0] = ctrl[0] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 10
-        ctrl[1] = ctrl[1] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 10
-        ctrl[2] = ctrl[2] * 0.65 / 1.71 / 0.53 * 0.65 / 5.88 * 0.65 * 2 / 1.97 * 0.65 / 3.72 * 0.656 / 0.627
+        hover_thrust = 0.6567
+
+        ctrl[0] = ctrl[0] * 0.515336334
+        ctrl[1] = ctrl[1] * 0.515336334
+        ctrl[2] = ctrl[2] *  hover_thrust / (self.hex_mass * 9.81) 
         ctrl[3:6] = ctrl[3:6] * 4
         return ctrl
 
