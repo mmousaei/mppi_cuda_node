@@ -23,7 +23,7 @@ class OneStepMPC:
         self.model = self.build_full_hexarotor_model()
 
         # Set up horizon
-        self.horizon = 3  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
+        self.horizon = 5  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
         self.ocp_solver = self.build_acados_ocp_solver()
         self.initialized = True
 

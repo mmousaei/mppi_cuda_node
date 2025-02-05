@@ -165,9 +165,9 @@ class ControlHexarotor:
             'max_force': 20.0,
             'max_torque': 0.2,
             'control_weight': 0.2,
-            'tracking_weight_pos': 20,
+            'tracking_weight_pos': 10,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 4,
+            'tracking_weight_att': 2,
             'tracking_weight_ang_vel': 0.5,
             'smoothness_weight': 0.05,
             'dt': 0.2
@@ -179,7 +179,7 @@ class ControlHexarotor:
 
         # [CHANGED/ADDED] Frequencies
         self.mppi_rate_hz = 5.0
-        self.mpc_rate_hz = 50.0
+        self.mpc_rate_hz = 80.0
         # We will run our spin loop at 50 Hz, and only do MPPI logic once every 5 iterations.
         print("Initialization Complete.\n")
 
@@ -376,7 +376,7 @@ class ControlHexarotor:
         ctrl[0] = ctrl[0] / 29.64 * 0.3
         ctrl[1] = ctrl[1] / 26.96 * 0.3
         ctrl[2] = ctrl[2] / 61.78 * 0.591
-        ctrl[3:6] = ctrl[3:6] * 2
+        ctrl[3:6] = ctrl[3:6] * 1
         return ctrl
 
     def normalize_control_inputs_mpc(self, ctrl):
