@@ -73,7 +73,7 @@ int full_hexarotor_model_acados_sim_create(full_hexarotor_model_sim_solver_capsu
     const int np = FULL_HEXAROTOR_MODEL_NP;
     bool tmp_bool;
 
-    double Tsim = 0.10000000000000002;
+    double Tsim = 0.3;
 
     external_function_opts ext_fun_opts;
     external_function_opts_set_to_default(&ext_fun_opts);

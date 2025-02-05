@@ -102,7 +102,7 @@ class ControlHexarotor:
         self.cfg = Config(
             T=2,                # Horizon length in seconds
             dt=0.2,        # Time step
-            num_control_rollouts=1024,
+            num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
@@ -127,17 +127,17 @@ class ControlHexarotor:
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, -0.0, 0.0, -0.0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 20,
-            'num_opt': 4,
+            'lambda_weight': 10,
+            'num_opt': 6,
             'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                400, 400, 200,
+                5500, 5500, 3400,
+                1, 1, 10,
+                800, 800, 800,
                 100, 100, 100,
-                500, 500, 500,
-                100, 100, 100,
-                1, 100, 1, 100, 500
+                1, 100, 1, 100, 3000
             ]),
             "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
         }
@@ -164,12 +164,12 @@ class ControlHexarotor:
             'gravity': 9.81,
             'max_force': 20.0,
             'max_torque': 0.2,
-            'control_weight': 0.1,
+            'control_weight': 0.2,
             'tracking_weight_pos': 20,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 5,
-            'tracking_weight_ang_vel': 1,
-            'smoothness_weight': 0.01,
+            'tracking_weight_att': 4,
+            'tracking_weight_ang_vel': 0.5,
+            'smoothness_weight': 0.05,
             'dt': 0.2
         }
         self.mpc = OneStepMPC(self.mpc_params)
@@ -185,9 +185,11 @@ class ControlHexarotor:
 
     def initialize_hexarotor_parameters(self):
         self.hex_mass = 7.0
+        # self.hex_mass = 8.5 # intentional mismatch to test adaptive control
         self.gravity_compensation_scale = 1.0
-        # self.inertia_flat = np.array([0.115125971, 0.116524229, 0.230387752])
-        self.inertia_flat = np.array([0.21, 0.21, 0.40])
+        self.inertia_flat = np.array([0.115125971, 0.116524229, 0.230387752])
+        # self.inertia_flat = np.array([0.21, 0.21, 0.40])
+        # self.inertia_flat = np.array([0.03, 0.07, 0.10]) # intentional mismatch to test adaptive control
         self.inertia_matrix = np.diag(self.inertia_flat)
 
     # ------------------------------
@@ -256,6 +258,7 @@ class ControlHexarotor:
         ])
         # Update LQR's target if desired
         self.lqr_controller.desired_x = self.mppi_controller.params['xgoal'].copy()
+        # Set mpc target for debugging purposes
         self.mpc_target = np.array([
             data.pose.position.x,
             data.pose.position.y,
@@ -266,7 +269,7 @@ class ControlHexarotor:
             data.pose.orientation.z,
             0, 0, 0
         ])
-        print("mpc target = " + self.mpc_target)
+        # print("mpc target = " + self.mpc_target)
 
     # ------------------------------
     # Publishing
@@ -386,7 +389,7 @@ class ControlHexarotor:
         ctrl[0] = ctrl[0] * 0.515336334
         ctrl[1] = ctrl[1] * 0.515336334
         ctrl[2] = ctrl[2] *  hover_thrust / (self.hex_mass * 9.81) 
-        ctrl[3:6] = ctrl[3:6] * 4
+        ctrl[3:6] = ctrl[3:6] * 1
         return ctrl
 
     # ------------------------------
@@ -418,6 +421,15 @@ class ControlHexarotor:
 
         # Forward-simulate from current_state:
         next_st = self.dynamics_update(self.current_state.copy(), mppi_u, self.mpc_params['dt'])
+        next_st[6:] = np.zeros(6)
+
+        final_target = np.array([self.mppi_params['xgoal'][0], self.mppi_params['xgoal'][1], self.mppi_params['xgoal'][2]])
+    
+        
+        thresholds = np.array([0.05, 0.05, 0.05])
+        for i in range(3):
+            if abs(self.current_state[i] - final_target[i]) < thresholds[i]:
+                self.current_state[i] = final_target[i].copy()
         # This next_st is our new MPC target
         self.mpc_target = next_st
 
@@ -449,8 +461,8 @@ class ControlHexarotor:
         iteration = 0
 
         while not rospy.is_shutdown():
-            # 1) MPPI is run every 5 iterations -> ~10 Hz
-            # if iteration % 5 == 0:
+            # 1) MPPI is run every (self.mpc_rate_hz // self.mppi_rate_hz) iterations
+            # if iteration % (self.mpc_rate_hz // self.mppi_rate_hz) == 0:
             #     self.run_mppi()
             #     self.forward_simulate_for_mpc_target()
 

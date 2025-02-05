@@ -38,86 +38,86 @@
 #include "acados_c/external_function_interface.h"
 
 // example specific
-#include "full_hexarotor_model_model/full_hexarotor_model_model.h"
+#include "hexarotor_model_nominal_model/hexarotor_model_nominal_model.h"
 
 
 
 
 
-#include "acados_solver_full_hexarotor_model.h"
+#include "acados_solver_hexarotor_model_nominal.h"
 
-#define NX     FULL_HEXAROTOR_MODEL_NX
-#define NZ     FULL_HEXAROTOR_MODEL_NZ
-#define NU     FULL_HEXAROTOR_MODEL_NU
-#define NP     FULL_HEXAROTOR_MODEL_NP
-#define NP_GLOBAL     FULL_HEXAROTOR_MODEL_NP_GLOBAL
-#define NY0    FULL_HEXAROTOR_MODEL_NY0
-#define NY     FULL_HEXAROTOR_MODEL_NY
-#define NYN    FULL_HEXAROTOR_MODEL_NYN
+#define NX     HEXAROTOR_MODEL_NOMINAL_NX
+#define NZ     HEXAROTOR_MODEL_NOMINAL_NZ
+#define NU     HEXAROTOR_MODEL_NOMINAL_NU
+#define NP     HEXAROTOR_MODEL_NOMINAL_NP
+#define NP_GLOBAL     HEXAROTOR_MODEL_NOMINAL_NP_GLOBAL
+#define NY0    HEXAROTOR_MODEL_NOMINAL_NY0
+#define NY     HEXAROTOR_MODEL_NOMINAL_NY
+#define NYN    HEXAROTOR_MODEL_NOMINAL_NYN
 
-#define NBX    FULL_HEXAROTOR_MODEL_NBX
-#define NBX0   FULL_HEXAROTOR_MODEL_NBX0
-#define NBU    FULL_HEXAROTOR_MODEL_NBU
-#define NG     FULL_HEXAROTOR_MODEL_NG
-#define NBXN   FULL_HEXAROTOR_MODEL_NBXN
-#define NGN    FULL_HEXAROTOR_MODEL_NGN
+#define NBX    HEXAROTOR_MODEL_NOMINAL_NBX
+#define NBX0   HEXAROTOR_MODEL_NOMINAL_NBX0
+#define NBU    HEXAROTOR_MODEL_NOMINAL_NBU
+#define NG     HEXAROTOR_MODEL_NOMINAL_NG
+#define NBXN   HEXAROTOR_MODEL_NOMINAL_NBXN
+#define NGN    HEXAROTOR_MODEL_NOMINAL_NGN
 
-#define NH     FULL_HEXAROTOR_MODEL_NH
-#define NHN    FULL_HEXAROTOR_MODEL_NHN
-#define NH0    FULL_HEXAROTOR_MODEL_NH0
-#define NPHI   FULL_HEXAROTOR_MODEL_NPHI
-#define NPHIN  FULL_HEXAROTOR_MODEL_NPHIN
-#define NPHI0  FULL_HEXAROTOR_MODEL_NPHI0
-#define NR     FULL_HEXAROTOR_MODEL_NR
+#define NH     HEXAROTOR_MODEL_NOMINAL_NH
+#define NHN    HEXAROTOR_MODEL_NOMINAL_NHN
+#define NH0    HEXAROTOR_MODEL_NOMINAL_NH0
+#define NPHI   HEXAROTOR_MODEL_NOMINAL_NPHI
+#define NPHIN  HEXAROTOR_MODEL_NOMINAL_NPHIN
+#define NPHI0  HEXAROTOR_MODEL_NOMINAL_NPHI0
+#define NR     HEXAROTOR_MODEL_NOMINAL_NR
 
-#define NS     FULL_HEXAROTOR_MODEL_NS
-#define NS0    FULL_HEXAROTOR_MODEL_NS0
-#define NSN    FULL_HEXAROTOR_MODEL_NSN
+#define NS     HEXAROTOR_MODEL_NOMINAL_NS
+#define NS0    HEXAROTOR_MODEL_NOMINAL_NS0
+#define NSN    HEXAROTOR_MODEL_NOMINAL_NSN
 
-#define NSBX   FULL_HEXAROTOR_MODEL_NSBX
-#define NSBU   FULL_HEXAROTOR_MODEL_NSBU
-#define NSH0   FULL_HEXAROTOR_MODEL_NSH0
-#define NSH    FULL_HEXAROTOR_MODEL_NSH
-#define NSHN   FULL_HEXAROTOR_MODEL_NSHN
-#define NSG    FULL_HEXAROTOR_MODEL_NSG
-#define NSPHI0 FULL_HEXAROTOR_MODEL_NSPHI0
-#define NSPHI  FULL_HEXAROTOR_MODEL_NSPHI
-#define NSPHIN FULL_HEXAROTOR_MODEL_NSPHIN
-#define NSGN   FULL_HEXAROTOR_MODEL_NSGN
-#define NSBXN  FULL_HEXAROTOR_MODEL_NSBXN
+#define NSBX   HEXAROTOR_MODEL_NOMINAL_NSBX
+#define NSBU   HEXAROTOR_MODEL_NOMINAL_NSBU
+#define NSH0   HEXAROTOR_MODEL_NOMINAL_NSH0
+#define NSH    HEXAROTOR_MODEL_NOMINAL_NSH
+#define NSHN   HEXAROTOR_MODEL_NOMINAL_NSHN
+#define NSG    HEXAROTOR_MODEL_NOMINAL_NSG
+#define NSPHI0 HEXAROTOR_MODEL_NOMINAL_NSPHI0
+#define NSPHI  HEXAROTOR_MODEL_NOMINAL_NSPHI
+#define NSPHIN HEXAROTOR_MODEL_NOMINAL_NSPHIN
+#define NSGN   HEXAROTOR_MODEL_NOMINAL_NSGN
+#define NSBXN  HEXAROTOR_MODEL_NOMINAL_NSBXN
 
 
 
 // ** solver data **
 
-full_hexarotor_model_solver_capsule * full_hexarotor_model_acados_create_capsule(void)
+hexarotor_model_nominal_solver_capsule * hexarotor_model_nominal_acados_create_capsule(void)
 {
-    void* capsule_mem = malloc(sizeof(full_hexarotor_model_solver_capsule));
-    full_hexarotor_model_solver_capsule *capsule = (full_hexarotor_model_solver_capsule *) capsule_mem;
+    void* capsule_mem = malloc(sizeof(hexarotor_model_nominal_solver_capsule));
+    hexarotor_model_nominal_solver_capsule *capsule = (hexarotor_model_nominal_solver_capsule *) capsule_mem;
 
     return capsule;
 }
 
 
-int full_hexarotor_model_acados_free_capsule(full_hexarotor_model_solver_capsule *capsule)
+int hexarotor_model_nominal_acados_free_capsule(hexarotor_model_nominal_solver_capsule *capsule)
 {
     free(capsule);
     return 0;
 }
 
 
-int full_hexarotor_model_acados_create(full_hexarotor_model_solver_capsule* capsule)
+int hexarotor_model_nominal_acados_create(hexarotor_model_nominal_solver_capsule* capsule)
 {
-    int N_shooting_intervals = FULL_HEXAROTOR_MODEL_N;
+    int N_shooting_intervals = HEXAROTOR_MODEL_NOMINAL_N;
     double* new_time_steps = NULL; // NULL -> don't alter the code generated time-steps
-    return full_hexarotor_model_acados_create_with_discretization(capsule, N_shooting_intervals, new_time_steps);
+    return hexarotor_model_nominal_acados_create_with_discretization(capsule, N_shooting_intervals, new_time_steps);
 }
 
 
-int full_hexarotor_model_acados_update_time_steps(full_hexarotor_model_solver_capsule* capsule, int N, double* new_time_steps)
+int hexarotor_model_nominal_acados_update_time_steps(hexarotor_model_nominal_solver_capsule* capsule, int N, double* new_time_steps)
 {
     if (N != capsule->nlp_solver_plan->N) {
-        fprintf(stderr, "full_hexarotor_model_acados_update_time_steps: given number of time steps (= %d) " \
+        fprintf(stderr, "hexarotor_model_nominal_acados_update_time_steps: given number of time steps (= %d) " \
             "differs from the currently allocated number of " \
             "time steps (= %d)!\n" \
             "Please recreate with new discretization and provide a new vector of time_stamps!\n",
@@ -138,9 +138,9 @@ int full_hexarotor_model_acados_update_time_steps(full_hexarotor_model_solver_ca
 }
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 1
+ * Internal function for hexarotor_model_nominal_acados_create: step 1
  */
-void full_hexarotor_model_acados_create_set_plan(ocp_nlp_plan_t* nlp_solver_plan, const int N)
+void hexarotor_model_nominal_acados_create_set_plan(ocp_nlp_plan_t* nlp_solver_plan, const int N)
 {
     assert(N == nlp_solver_plan->N);
 
@@ -178,7 +178,7 @@ void full_hexarotor_model_acados_create_set_plan(ocp_nlp_plan_t* nlp_solver_plan
 }
 
 
-static ocp_nlp_dims* full_hexarotor_model_acados_create_setup_dimensions(full_hexarotor_model_solver_capsule* capsule)
+static ocp_nlp_dims* hexarotor_model_nominal_acados_create_setup_dimensions(hexarotor_model_nominal_solver_capsule* capsule)
 {
     ocp_nlp_plan_t* nlp_solver_plan = capsule->nlp_solver_plan;
     const int N = nlp_solver_plan->N;
@@ -310,9 +310,9 @@ static ocp_nlp_dims* full_hexarotor_model_acados_create_setup_dimensions(full_he
 
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 3
+ * Internal function for hexarotor_model_nominal_acados_create: step 3
  */
-void full_hexarotor_model_acados_create_setup_functions(full_hexarotor_model_solver_capsule* capsule)
+void hexarotor_model_nominal_acados_create_setup_functions(hexarotor_model_nominal_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
 
@@ -342,17 +342,17 @@ void full_hexarotor_model_acados_create_setup_functions(full_hexarotor_model_sol
     // explicit ode
     capsule->expl_vde_forw = (external_function_external_param_casadi *) malloc(sizeof(external_function_external_param_casadi)*N);
     for (int i = 0; i < N; i++) {
-        MAP_CASADI_FNC(expl_vde_forw[i], full_hexarotor_model_expl_vde_forw);
+        MAP_CASADI_FNC(expl_vde_forw[i], hexarotor_model_nominal_expl_vde_forw);
     }
 
     capsule->expl_ode_fun = (external_function_external_param_casadi *) malloc(sizeof(external_function_external_param_casadi)*N);
     for (int i = 0; i < N; i++) {
-        MAP_CASADI_FNC(expl_ode_fun[i], full_hexarotor_model_expl_ode_fun);
+        MAP_CASADI_FNC(expl_ode_fun[i], hexarotor_model_nominal_expl_ode_fun);
     }
 
     capsule->expl_vde_adj = (external_function_external_param_casadi *) malloc(sizeof(external_function_external_param_casadi)*N);
     for (int i = 0; i < N; i++) {
-        MAP_CASADI_FNC(expl_vde_adj[i], full_hexarotor_model_expl_vde_adj);
+        MAP_CASADI_FNC(expl_vde_adj[i], hexarotor_model_nominal_expl_vde_adj);
     }
 
 
@@ -362,9 +362,9 @@ void full_hexarotor_model_acados_create_setup_functions(full_hexarotor_model_sol
 
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 4
+ * Internal function for hexarotor_model_nominal_acados_create: step 4
  */
-void full_hexarotor_model_acados_create_set_default_parameters(full_hexarotor_model_solver_capsule* capsule)
+void hexarotor_model_nominal_acados_create_set_default_parameters(hexarotor_model_nominal_solver_capsule* capsule)
 {
 
     // no parameters defined
@@ -375,9 +375,9 @@ void full_hexarotor_model_acados_create_set_default_parameters(full_hexarotor_mo
 
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 5
+ * Internal function for hexarotor_model_nominal_acados_create: step 5
  */
-void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsule* capsule, const int N, double* new_time_steps)
+void hexarotor_model_nominal_acados_setup_nlp_in(hexarotor_model_nominal_solver_capsule* capsule, const int N, double* new_time_steps)
 {
     assert(N == capsule->nlp_solver_plan->N);
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -397,7 +397,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     if (new_time_steps)
     {
         // NOTE: this sets scaling and time_steps
-        full_hexarotor_model_acados_update_time_steps(capsule, N, new_time_steps);
+        hexarotor_model_nominal_acados_update_time_steps(capsule, N, new_time_steps);
     }
     else
     {
@@ -674,7 +674,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
 }
 
 
-static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_solver_capsule* capsule)
+static void hexarotor_model_nominal_acados_create_set_opts(hexarotor_model_nominal_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -775,9 +775,9 @@ static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_sol
 
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 7
+ * Internal function for hexarotor_model_nominal_acados_create: step 7
  */
-void full_hexarotor_model_acados_set_nlp_out(full_hexarotor_model_solver_capsule* capsule)
+void hexarotor_model_nominal_acados_set_nlp_out(hexarotor_model_nominal_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -806,9 +806,9 @@ void full_hexarotor_model_acados_set_nlp_out(full_hexarotor_model_solver_capsule
 
 
 /**
- * Internal function for full_hexarotor_model_acados_create: step 9
+ * Internal function for hexarotor_model_nominal_acados_create: step 9
  */
-int full_hexarotor_model_acados_create_precompute(full_hexarotor_model_solver_capsule* capsule) {
+int hexarotor_model_nominal_acados_create_precompute(hexarotor_model_nominal_solver_capsule* capsule) {
     int status = ocp_nlp_precompute(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
 
     if (status != ACADOS_SUCCESS) {
@@ -820,14 +820,14 @@ int full_hexarotor_model_acados_create_precompute(full_hexarotor_model_solver_ca
 }
 
 
-int full_hexarotor_model_acados_create_with_discretization(full_hexarotor_model_solver_capsule* capsule, int N, double* new_time_steps)
+int hexarotor_model_nominal_acados_create_with_discretization(hexarotor_model_nominal_solver_capsule* capsule, int N, double* new_time_steps)
 {
     // If N does not match the number of shooting intervals used for code generation, new_time_steps must be given.
-    if (N != FULL_HEXAROTOR_MODEL_N && !new_time_steps) {
-        fprintf(stderr, "full_hexarotor_model_acados_create_with_discretization: new_time_steps is NULL " \
+    if (N != HEXAROTOR_MODEL_NOMINAL_N && !new_time_steps) {
+        fprintf(stderr, "hexarotor_model_nominal_acados_create_with_discretization: new_time_steps is NULL " \
             "but the number of shooting intervals (= %d) differs from the number of " \
             "shooting intervals (= %d) during code generation! Please provide a new vector of time_stamps!\n", \
-             N, FULL_HEXAROTOR_MODEL_N);
+             N, HEXAROTOR_MODEL_NOMINAL_N);
         return 1;
     }
 
@@ -836,23 +836,23 @@ int full_hexarotor_model_acados_create_with_discretization(full_hexarotor_model_
 
     // 1) create and set nlp_solver_plan; create nlp_config
     capsule->nlp_solver_plan = ocp_nlp_plan_create(N);
-    full_hexarotor_model_acados_create_set_plan(capsule->nlp_solver_plan, N);
+    hexarotor_model_nominal_acados_create_set_plan(capsule->nlp_solver_plan, N);
     capsule->nlp_config = ocp_nlp_config_create(*capsule->nlp_solver_plan);
 
     // 2) create and set dimensions
-    capsule->nlp_dims = full_hexarotor_model_acados_create_setup_dimensions(capsule);
+    capsule->nlp_dims = hexarotor_model_nominal_acados_create_setup_dimensions(capsule);
 
     // 3) create and set nlp_opts
     capsule->nlp_opts = ocp_nlp_solver_opts_create(capsule->nlp_config, capsule->nlp_dims);
-    full_hexarotor_model_acados_create_set_opts(capsule);
+    hexarotor_model_nominal_acados_create_set_opts(capsule);
 
     // 4) create nlp_in
     capsule->nlp_in = ocp_nlp_in_create(capsule->nlp_config, capsule->nlp_dims);
 
     // 5) setup functions, nlp_in and default parameters
-    full_hexarotor_model_acados_create_setup_functions(capsule);
-    full_hexarotor_model_acados_setup_nlp_in(capsule, N, new_time_steps);
-    full_hexarotor_model_acados_create_set_default_parameters(capsule);
+    hexarotor_model_nominal_acados_create_setup_functions(capsule);
+    hexarotor_model_nominal_acados_setup_nlp_in(capsule, N, new_time_steps);
+    hexarotor_model_nominal_acados_create_set_default_parameters(capsule);
 
     // 6) create solver
     capsule->nlp_solver = ocp_nlp_solver_create(capsule->nlp_config, capsule->nlp_dims, capsule->nlp_opts, capsule->nlp_in);
@@ -862,10 +862,10 @@ int full_hexarotor_model_acados_create_with_discretization(full_hexarotor_model_
     capsule->nlp_out = ocp_nlp_out_create(capsule->nlp_config, capsule->nlp_dims);
     // 7.2) sens_out
     capsule->sens_out = ocp_nlp_out_create(capsule->nlp_config, capsule->nlp_dims);
-    full_hexarotor_model_acados_set_nlp_out(capsule);
+    hexarotor_model_nominal_acados_set_nlp_out(capsule);
 
     // 8) do precomputations
-    int status = full_hexarotor_model_acados_create_precompute(capsule);
+    int status = hexarotor_model_nominal_acados_create_precompute(capsule);
 
     return status;
 }
@@ -873,7 +873,7 @@ int full_hexarotor_model_acados_create_with_discretization(full_hexarotor_model_
 /**
  * This function is for updating an already initialized solver with a different number of qp_cond_N. It is useful for code reuse after code export.
  */
-int full_hexarotor_model_acados_update_qp_solver_cond_N(full_hexarotor_model_solver_capsule* capsule, int qp_solver_cond_N)
+int hexarotor_model_nominal_acados_update_qp_solver_cond_N(hexarotor_model_nominal_solver_capsule* capsule, int qp_solver_cond_N)
 {
     printf("\nacados_update_qp_solver_cond_N() not implemented, since no partial condensing solver is used!\n\n");
     exit(1);
@@ -881,7 +881,7 @@ int full_hexarotor_model_acados_update_qp_solver_cond_N(full_hexarotor_model_sol
 }
 
 
-int full_hexarotor_model_acados_reset(full_hexarotor_model_solver_capsule* capsule, int reset_qp_solver_mem)
+int hexarotor_model_nominal_acados_reset(hexarotor_model_nominal_solver_capsule* capsule, int reset_qp_solver_mem)
 {
 
     // set initialization to all zeros
@@ -916,7 +916,7 @@ int full_hexarotor_model_acados_reset(full_hexarotor_model_solver_capsule* capsu
 
 
 
-int full_hexarotor_model_acados_update_params(full_hexarotor_model_solver_capsule* capsule, int stage, double *p, int np)
+int hexarotor_model_nominal_acados_update_params(hexarotor_model_nominal_solver_capsule* capsule, int stage, double *p, int np)
 {
     int solver_status = 0;
 
@@ -932,7 +932,7 @@ int full_hexarotor_model_acados_update_params(full_hexarotor_model_solver_capsul
 }
 
 
-int full_hexarotor_model_acados_update_params_sparse(full_hexarotor_model_solver_capsule * capsule, int stage, int *idx, double *p, int n_update)
+int hexarotor_model_nominal_acados_update_params_sparse(hexarotor_model_nominal_solver_capsule * capsule, int stage, int *idx, double *p, int n_update)
 {
     ocp_nlp_in_set_params_sparse(capsule->nlp_config, capsule->nlp_dims, capsule->nlp_in, stage, idx, p, n_update);
 
@@ -940,16 +940,16 @@ int full_hexarotor_model_acados_update_params_sparse(full_hexarotor_model_solver
 }
 
 
-int full_hexarotor_model_acados_set_p_global_and_precompute_dependencies(full_hexarotor_model_solver_capsule* capsule, double* data, int data_len)
+int hexarotor_model_nominal_acados_set_p_global_and_precompute_dependencies(hexarotor_model_nominal_solver_capsule* capsule, double* data, int data_len)
 {
 
-    printf("p_global is not defined, full_hexarotor_model_acados_set_p_global_and_precompute_dependencies does nothing.\n");
+    printf("p_global is not defined, hexarotor_model_nominal_acados_set_p_global_and_precompute_dependencies does nothing.\n");
 }
 
 
 
 
-int full_hexarotor_model_acados_solve(full_hexarotor_model_solver_capsule* capsule)
+int hexarotor_model_nominal_acados_solve(hexarotor_model_nominal_solver_capsule* capsule)
 {
     // solve NLP
     int solver_status = ocp_nlp_solve(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
@@ -958,7 +958,7 @@ int full_hexarotor_model_acados_solve(full_hexarotor_model_solver_capsule* capsu
 }
 
 
-void full_hexarotor_model_acados_batch_solve(full_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch)
+void hexarotor_model_nominal_acados_batch_solve(hexarotor_model_nominal_solver_capsule ** capsules, int * status_out, int N_batch)
 {
 
     for (int i = 0; i < N_batch; i++)
@@ -971,7 +971,7 @@ void full_hexarotor_model_acados_batch_solve(full_hexarotor_model_solver_capsule
 }
 
 
-void full_hexarotor_model_acados_batch_eval_params_jac(full_hexarotor_model_solver_capsule ** capsules, int N_batch)
+void hexarotor_model_nominal_acados_batch_eval_params_jac(hexarotor_model_nominal_solver_capsule ** capsules, int N_batch)
 {
 
     for (int i = 0; i < N_batch; i++)
@@ -985,7 +985,7 @@ void full_hexarotor_model_acados_batch_eval_params_jac(full_hexarotor_model_solv
 
 
 
-void full_hexarotor_model_acados_batch_eval_solution_sens_adj_p(full_hexarotor_model_solver_capsule ** capsules, const char *field, int stage, double *out, int offset, int N_batch)
+void hexarotor_model_nominal_acados_batch_eval_solution_sens_adj_p(hexarotor_model_nominal_solver_capsule ** capsules, const char *field, int stage, double *out, int offset, int N_batch)
 {
 
 
@@ -999,7 +999,7 @@ void full_hexarotor_model_acados_batch_eval_solution_sens_adj_p(full_hexarotor_m
 }
 
 
-void full_hexarotor_model_acados_batch_set_flat(full_hexarotor_model_solver_capsule ** capsules, const char *field, double *data, int N_data, int N_batch)
+void hexarotor_model_nominal_acados_batch_set_flat(hexarotor_model_nominal_solver_capsule ** capsules, const char *field, double *data, int N_data, int N_batch)
 {
     int offset = ocp_nlp_dims_get_total_from_attr(capsules[0]->nlp_solver->config, capsules[0]->nlp_solver->dims, capsules[0]->nlp_out, field);
 
@@ -1021,7 +1021,7 @@ void full_hexarotor_model_acados_batch_set_flat(full_hexarotor_model_solver_caps
 
 
 
-void full_hexarotor_model_acados_batch_get_flat(full_hexarotor_model_solver_capsule ** capsules, const char *field, double *data, int N_data, int N_batch)
+void hexarotor_model_nominal_acados_batch_get_flat(hexarotor_model_nominal_solver_capsule ** capsules, const char *field, double *data, int N_data, int N_batch)
 {
     int offset = ocp_nlp_dims_get_total_from_attr(capsules[0]->nlp_solver->config, capsules[0]->nlp_solver->dims, capsules[0]->nlp_out, field);
 
@@ -1042,7 +1042,7 @@ void full_hexarotor_model_acados_batch_get_flat(full_hexarotor_model_solver_caps
 }
 
 
-int full_hexarotor_model_acados_free(full_hexarotor_model_solver_capsule* capsule)
+int hexarotor_model_nominal_acados_free(hexarotor_model_nominal_solver_capsule* capsule)
 {
     // before destroying, keep some info
     const int N = capsule->nlp_solver_plan->N;
@@ -1078,7 +1078,7 @@ int full_hexarotor_model_acados_free(full_hexarotor_model_solver_capsule* capsul
 }
 
 
-void full_hexarotor_model_acados_print_stats(full_hexarotor_model_solver_capsule* capsule)
+void hexarotor_model_nominal_acados_print_stats(hexarotor_model_nominal_solver_capsule* capsule)
 {
     int nlp_iter, stat_m, stat_n, tmp_int;
     ocp_nlp_get(capsule->nlp_solver, "nlp_iter", &nlp_iter);
@@ -1104,7 +1104,7 @@ void full_hexarotor_model_acados_print_stats(full_hexarotor_model_solver_capsule
     }
 }
 
-int full_hexarotor_model_acados_custom_update(full_hexarotor_model_solver_capsule* capsule, double* data, int data_len)
+int hexarotor_model_nominal_acados_custom_update(hexarotor_model_nominal_solver_capsule* capsule, double* data, int data_len)
 {
     (void)capsule;
     (void)data;
@@ -1117,11 +1117,11 @@ int full_hexarotor_model_acados_custom_update(full_hexarotor_model_solver_capsul
 
 
 
-ocp_nlp_in *full_hexarotor_model_acados_get_nlp_in(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_in; }
-ocp_nlp_out *full_hexarotor_model_acados_get_nlp_out(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_out; }
-ocp_nlp_out *full_hexarotor_model_acados_get_sens_out(full_hexarotor_model_solver_capsule* capsule) { return capsule->sens_out; }
-ocp_nlp_solver *full_hexarotor_model_acados_get_nlp_solver(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_solver; }
-ocp_nlp_config *full_hexarotor_model_acados_get_nlp_config(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_config; }
-void *full_hexarotor_model_acados_get_nlp_opts(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_opts; }
-ocp_nlp_dims *full_hexarotor_model_acados_get_nlp_dims(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_dims; }
-ocp_nlp_plan_t *full_hexarotor_model_acados_get_nlp_plan(full_hexarotor_model_solver_capsule* capsule) { return capsule->nlp_solver_plan; }
+ocp_nlp_in *hexarotor_model_nominal_acados_get_nlp_in(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_in; }
+ocp_nlp_out *hexarotor_model_nominal_acados_get_nlp_out(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_out; }
+ocp_nlp_out *hexarotor_model_nominal_acados_get_sens_out(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->sens_out; }
+ocp_nlp_solver *hexarotor_model_nominal_acados_get_nlp_solver(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_solver; }
+ocp_nlp_config *hexarotor_model_nominal_acados_get_nlp_config(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_config; }
+void *hexarotor_model_nominal_acados_get_nlp_opts(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_opts; }
+ocp_nlp_dims *hexarotor_model_nominal_acados_get_nlp_dims(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_dims; }
+ocp_nlp_plan_t *hexarotor_model_nominal_acados_get_nlp_plan(hexarotor_model_nominal_solver_capsule* capsule) { return capsule->nlp_solver_plan; }

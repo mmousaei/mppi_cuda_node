@@ -35,9 +35,9 @@
 # model
 MODEL_SRC=
 
-MODEL_SRC+= full_hexarotor_model_model/full_hexarotor_model_expl_ode_fun.c
-MODEL_SRC+= full_hexarotor_model_model/full_hexarotor_model_expl_vde_forw.c
-MODEL_SRC+= full_hexarotor_model_model/full_hexarotor_model_expl_vde_adj.c
+MODEL_SRC+= hexarotor_model_adaptive_model/hexarotor_model_adaptive_expl_ode_fun.c
+MODEL_SRC+= hexarotor_model_adaptive_model/hexarotor_model_adaptive_expl_vde_forw.c
+MODEL_SRC+= hexarotor_model_adaptive_model/hexarotor_model_adaptive_expl_vde_adj.c
 
 MODEL_OBJ := $(MODEL_SRC:.c=.o)
 # optimal control problem - mostly CasADi exports
@@ -45,19 +45,19 @@ OCP_SRC=
 
 
 
-OCP_SRC+= acados_solver_full_hexarotor_model.c
+OCP_SRC+= acados_solver_hexarotor_model_adaptive.c
 
 OCP_OBJ := $(OCP_SRC:.c=.o)
 # for sim solver
-SIM_SRC= acados_sim_solver_full_hexarotor_model.c
+SIM_SRC= acados_sim_solver_hexarotor_model_adaptive.c
 SIM_OBJ := $(SIM_SRC:.c=.o)
 
 # for target example_sim
-EX_SIM_SRC= main_sim_full_hexarotor_model.c
+EX_SIM_SRC= main_sim_hexarotor_model_adaptive.c
 EX_SIM_OBJ := $(EX_SIM_SRC:.c=.o)
 EX_SIM_EXE := $(EX_SIM_SRC:.c=)
 # for target example
-EX_SRC= main_full_hexarotor_model.c
+EX_SRC= main_hexarotor_model_adaptive.c
 EX_OBJ := $(EX_SRC:.c=.o)
 EX_EXE := $(EX_SRC:.c=)
 
@@ -99,8 +99,8 @@ LDLIBS+= -lm
 LDLIBS+= 
 
 # libraries
-LIBACADOS_SOLVER=libacados_solver_full_hexarotor_model.so
-LIBACADOS_OCP_SOLVER=libacados_ocp_solver_full_hexarotor_model.so
+LIBACADOS_SOLVER=libacados_solver_hexarotor_model_adaptive.so
+LIBACADOS_OCP_SOLVER=libacados_ocp_solver_hexarotor_model_adaptive.so
 LIBACADOS_SIM_SOLVER=lib$(SIM_SRC:.c=.so)
 
 # virtual targets
@@ -150,7 +150,7 @@ ocp_cython: ocp_cython_o
 	-o acados_ocp_solver_pyx.so \
 	-Wl,-rpath=$(LIB_PATH) \
 	acados_ocp_solver_pyx.o \
-	$(abspath .)/libacados_ocp_solver_full_hexarotor_model.so \
+	$(abspath .)/libacados_ocp_solver_hexarotor_model_adaptive.so \
 	$(LDFLAGS) $(LDLIBS)
 
 
@@ -178,7 +178,7 @@ sim_cython: sim_cython_o
 	-o acados_sim_solver_pyx.so \
 	-Wl,-rpath=$(LIB_PATH) \
 	acados_sim_solver_pyx.o \
-	$(abspath .)/libacados_sim_solver_full_hexarotor_model.so \
+	$(abspath .)/libacados_sim_solver_hexarotor_model_adaptive.so \
 	$(LDFLAGS) $(LDLIBS)
 
 clean:
@@ -190,13 +190,13 @@ clean_ocp_shared_lib:
 	$(RM) $(OCP_OBJ)
 
 clean_ocp_cython:
-	$(RM) libacados_ocp_solver_full_hexarotor_model.so
-	$(RM) acados_solver_full_hexarotor_model.o
+	$(RM) libacados_ocp_solver_hexarotor_model_adaptive.so
+	$(RM) acados_solver_hexarotor_model_adaptive.o
 	$(RM) acados_ocp_solver_pyx.so
 	$(RM) acados_ocp_solver_pyx.o
 
 clean_sim_cython:
-	$(RM) libacados_sim_solver_full_hexarotor_model.so
-	$(RM) acados_sim_solver_full_hexarotor_model.o
+	$(RM) libacados_sim_solver_hexarotor_model_adaptive.so
+	$(RM) acados_sim_solver_hexarotor_model_adaptive.o
 	$(RM) acados_sim_solver_pyx.so
 	$(RM) acados_sim_solver_pyx.o

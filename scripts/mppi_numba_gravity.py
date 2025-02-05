@@ -866,7 +866,7 @@ if __name__ == "__main__":
     cfg = Config(
             T=2,                # Horizon length in seconds
             dt=0.2,        # Time step
-            num_control_rollouts=1024,
+            num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
@@ -883,17 +883,17 @@ if __name__ == "__main__":
             'xgoal': xgoal,
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 20,
-            'num_opt': 4,
+            'lambda_weight': 10,
+            'num_opt': 6,
             'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                400, 400, 200,
+                5500, 5500, 3400,
+                5, 5, 10,
+                800, 800, 800,
                 100, 100, 100,
-                500, 500, 500,
-                100, 100, 100,
-                1, 100, 1, 100, 500
+                1, 100, 1, 100, 2000
             ]),
             "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
         }
