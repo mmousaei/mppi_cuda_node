@@ -21,6 +21,7 @@ from diagnostic_msgs.msg import KeyValue
 # --- MPPI and MPC imports ---
 from mppi_numba_gravity import MPPI_Numba, Config
 from acados_mpc import OneStepMPC
+from acados_mpc_tube import TubeMPC
 
 from lqr_controller import LqrController
 from scipy.spatial.transform import Rotation
@@ -163,16 +164,17 @@ class ControlHexarotor:
             'mass': self.hex_mass,
             'gravity': 9.81,
             'max_force': 20.0,
-            'max_torque': 0.2,
+            'max_torque': 1,
             'control_weight': 0.2,
             'tracking_weight_pos': 10,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 2,
-            'tracking_weight_ang_vel': 0.5,
+            'tracking_weight_att': 1,
+            'tracking_weight_ang_vel': 0.1,
             'smoothness_weight': 0.05,
             'dt': 0.2
         }
         self.mpc = OneStepMPC(self.mpc_params)
+        self.tube_mpc = TubeMPC(self.mpc_params)
 
         # [CHANGED/ADDED] We will store the MPC target that MPPI provides:
         self.mpc_target = self.mppi_params['xgoal'].copy()
@@ -204,8 +206,9 @@ class ControlHexarotor:
         twist = data.twist.twist
 
         # Update self.current_state
-        self.current_state[:3] = [pose.position.x, pose.position.y, pose.position.z]
-        self.current_state[3:6] = [twist.linear.x, twist.linear.y, twist.linear.z]
+        disturbance = np.random.randn(6)
+        self.current_state[:3] = [pose.position.x, pose.position.y, pose.position.z] + 0.05 * disturbance[:3]
+        self.current_state[3:6] = [twist.linear.x, twist.linear.y, twist.linear.z]   
 
         quaternion = [
             pose.orientation.x,
@@ -214,7 +217,7 @@ class ControlHexarotor:
             pose.orientation.w
         ]
         euler = euler_from_quaternion(quaternion)
-        self.current_state[6:9] = euler
+        self.current_state[6:9] = euler + 0.01 * disturbance[3:] + [0.01, 0.02, 0.03]
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
 
         # Debug publish
@@ -389,11 +392,11 @@ class ControlHexarotor:
         ctrl[0] = ctrl[0] * 0.515336334
         ctrl[1] = ctrl[1] * 0.515336334
         ctrl[2] = ctrl[2] *  hover_thrust / (self.hex_mass * 9.81) 
-        ctrl[3:6] = ctrl[3:6] * 1
+        ctrl[3:6] = ctrl[3:6] * 0.5
         return ctrl
 
     # ------------------------------
-    # MPPI / MPC Combined Logic
+    # MPPI / MPC Combined 
     # ------------------------------
     def run_mppi(self):
         """
@@ -451,6 +454,28 @@ class ControlHexarotor:
             self.mpc_params['dt']
         )
         return u_mpc
+    
+    def run_tube_mpc(self):
+        """
+        Solve the tube MPC using:
+         - current_state as x_real
+         - mpc_target as x_nom
+         - A hover-level nominal input for u_nom
+        Returns the *real* control to be applied (u_real).
+        """
+        x_real = self.current_state.copy()
+        x_nom  = self.mpc_target.copy()
+
+        # For simplicity, pick a hover nominal input: Fz=mg, others=0
+        u_hover = np.array([
+            0.0, 0.0,
+            self.hex_mass * 9.81,
+            0.0, 0.0, 0.0
+        ])
+
+        # The tube MPC's compute_control method requires (x_real, x_nom, u_nom)
+        u_tube = self.tube_mpc.compute_control(x_real, x_nom, u_hover)
+        return u_tube
 
     # ------------------------------
     # Main spin: 50 Hz (MPC), MPPI at 10 Hz
@@ -469,6 +494,7 @@ class ControlHexarotor:
             # 2) At every iteration (50 Hz), run MPC
             current_time = rospy.Time.now().to_sec()
             mpc_ctrl = self.run_mpc()
+            # mpc_ctrl = self.run_tube_mpc()
 
             # 3) Normalize MPC control and filter
             mpc_ctrl_norm = self.normalize_control_inputs_mpc(mpc_ctrl.copy())

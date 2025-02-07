@@ -60,12 +60,12 @@
         "idxsphi_0": [],
         "idxsphi_e": [],
         "lbu": [
-            -20.0,
-            -20.0,
+            -18.0,
+            -18.0,
             0.0,
-            -0.05,
-            -0.05,
-            -0.05
+            -0.04,
+            -0.04,
+            -0.04
         ],
         "lbx": [],
         "lbx_0": [
@@ -103,12 +103,12 @@
         "lsphi_0": [],
         "lsphi_e": [],
         "ubu": [
-            20.0,
-            20.0,
+            18.0,
+            18.0,
             240.0,
-            0.05,
-            0.05,
-            0.05
+            0.04,
+            0.04,
+            0.04
         ],
         "ubx": [],
         "ubx_0": [
@@ -1746,7 +1746,7 @@
         "/usr/include/python3.8"
     ],
     "dims": {
-        "N": 3,
+        "N": 5,
         "n_global_data": 0,
         "nbu": 6,
         "nbx": 0,
@@ -1789,9 +1789,9 @@
         "nz": 0
     },
     "external_function_files_model": [
-        "hexarotor_model_nominal_model/hexarotor_model_nominal_expl_ode_fun.c",
-        "hexarotor_model_nominal_model/hexarotor_model_nominal_expl_vde_forw.c",
-        "hexarotor_model_nominal_model/hexarotor_model_nominal_expl_vde_adj.c"
+        "tube_hexarotor_model_model/tube_hexarotor_model_expl_ode_fun.c",
+        "tube_hexarotor_model_model/tube_hexarotor_model_expl_vde_forw.c",
+        "tube_hexarotor_model_model/tube_hexarotor_model_expl_vde_adj.c"
     ],
     "external_function_files_ocp": [],
     "json_file": "acados_ocp.json",
@@ -1839,7 +1839,7 @@
         "f_impl_expr": "@1=x[6], @2=x[7], @3=x[8], @4=x[9], @5=x[10], @6=x[11], (xdot-vertcat(x[3], x[4], x[5], ((u[0]/7)-(9.81*(((cos(@1)*sin(@2))*cos(@3))+(sin(@1)*sin(@3))))), ((u[1]/7)-(9.81*(((cos(@1)*sin(@2))*sin(@3))-(sin(@1)*cos(@3))))), ((u[2]/7)-(9.81*(cos(@1)*cos(@2)))), ((@4+((@5*sin(@1))*tan(@2)))+((@6*cos(@1))*tan(@2))), ((@5*cos(@1))-(@6*sin(@1))), (((@5*sin(@1))/cos(@2))+((@6*cos(@1))/cos(@2))), (8.68614*(u[3]+((-0.113864*@5)*@6))), (8.58191*(u[4]+((0.115262*@4)*@6))), (4.34051*(u[5]+((-0.00139826*@4)*@5)))))",
         "gnsf_nontrivial_f_LO": 1,
         "gnsf_purely_linear": 0,
-        "name": "hexarotor_model_nominal",
+        "name": "tube_hexarotor_model",
         "nu_original": null,
         "p": "0x1",
         "p_global": "0x1",
@@ -1853,14 +1853,14 @@
         "xdot": "xdot",
         "z": "0x1"
     },
-    "name": "hexarotor_model_nominal",
+    "name": "tube_hexarotor_model",
     "p_global_values": [],
     "parameter_values": [],
     "problem_class": "OCP",
     "shared_lib_ext": ".so",
     "simulink_opts": null,
     "solver_options": {
-        "N_horizon": 3,
+        "N_horizon": 5,
         "Tsim": 0.3,
         "adaptive_levenberg_marquardt_lam": 5.0,
         "adaptive_levenberg_marquardt_mu0": 0.001,
@@ -1870,6 +1870,8 @@
         "collocation_type": "GAUSS_LEGENDRE",
         "cost_discretization": "EULER",
         "cost_scaling": [
+            0.3,
+            0.3,
             0.3,
             0.3,
             0.3,
@@ -1919,7 +1921,7 @@
         "num_threads_in_batch_solve": 1,
         "print_level": 0,
         "qp_solver": "FULL_CONDENSING_HPIPM",
-        "qp_solver_cond_N": 3,
+        "qp_solver_cond_N": 5,
         "qp_solver_cond_block_size": null,
         "qp_solver_cond_ric_alg": 1,
         "qp_solver_iter_max": 50,
@@ -1938,9 +1940,13 @@
             0.0,
             0.3,
             0.6,
-            0.8999999999999999
+            0.8999999999999999,
+            1.2,
+            1.5
         ],
         "sim_method_jac_reuse": [
+            0,
+            0,
             0,
             0,
             0
@@ -1950,16 +1956,22 @@
         "sim_method_num_stages": [
             4,
             4,
+            4,
+            4,
             4
         ],
         "sim_method_num_steps": [
             1,
             1,
+            1,
+            1,
             1
         ],
         "store_iterates": false,
-        "tf": 0.8999999999999999,
+        "tf": 1.5,
         "time_steps": [
+            0.3,
+            0.3,
             0.3,
             0.3,
             0.3
