@@ -162,15 +162,17 @@ class ControlHexarotor:
         self.mpc_params = {
             'inertia': self.inertia_flat,
             'mass': self.hex_mass,
+            'horizon': 5,
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1,
             'control_weight': 0.2,
-            'tracking_weight_pos': 10,
-            'tracking_weight_vel': 3,
-            'tracking_weight_att': 1,
+            'tracking_weight_pos': 6,
+            'tracking_weight_vel': 2,
+            'tracking_weight_att': 0.5,
             'tracking_weight_ang_vel': 0.1,
             'smoothness_weight': 0.05,
+            'lqr_weights' : np.array([1, 0.2, 0.05, 0.01, 2e-3, 2e-3]), # p, v, rpy, rate, f, m
             'dt': 0.2
         }
         self.mpc = OneStepMPC(self.mpc_params)

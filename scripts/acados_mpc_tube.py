@@ -22,6 +22,8 @@ def compute_lqr_gain_at_hover(params, hover_state, hover_input, dt=0.02):
     m = params['mass']
     g = params['gravity']
 
+    w_p, w_v, w_att, w_w, w_f, w_m = params['lqr_weights']
+
     # Symbolic definition
     x_sym = cs.MX.sym("x", 12)
     u_sym = cs.MX.sym("u", 6)
@@ -91,8 +93,8 @@ def compute_lqr_gain_at_hover(params, hover_state, hover_input, dt=0.02):
     B_d = B_val * dt
 
     # 5) Solve discrete LQR
-    Q_e = np.diag([1]*3 + [0.1]*3 + [0.1]*3 + [0.05]*3)
-    R_e = np.diag([1e-2]*6)
+    Q_e = np.diag([w_p, w_p, w_p * 8] + [w_v]*3 + [w_att]*3 + [w_w]*3)
+    R_e = np.diag([w_f]*3+[w_m]*3)
 
     P = solve_discrete_are(A_d, B_d, Q_e, R_e)
     K = np.linalg.inv(R_e + B_d.T @ P @ B_d) @ (B_d.T @ P @ A_d)
@@ -119,7 +121,7 @@ class TubeMPC:
         """
         self.params = params
         self.dt = params["dt"]
-        self.horizon = 5  # Prediction horizon in # of steps
+        self.horizon = params['horizon']  # Prediction horizon in # of steps
 
         # 1) Build the nominal model (same as your original full MPC model)
         self.model = self._build_nominal_model()
@@ -255,8 +257,8 @@ class TubeMPC:
         max_torque = p['max_torque']
 
         # Naive margin to account for possible feedback corrections
-        margin_F = 2.0
-        margin_T = 0.01
+        margin_F = 5.0
+        margin_T = 0.6
 
         lbu = np.array([
             -max_force + margin_F,
@@ -323,6 +325,7 @@ class TubeMPC:
         # 4) Apply local feedback
         e = x_real - x_nom
         u_real = u_nom0 - self.K.dot(e)
+        # u_real = np.array([0, 0, self.params['mass']*self.params['gravity'], 0, 0, 0])- self.K.dot(e)
 
         return u_real
 
