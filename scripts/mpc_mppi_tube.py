@@ -103,7 +103,7 @@ class ControlHexarotor:
         self.cfg = Config(
             T=2,                # Horizon length in seconds
             dt=0.2,        # Time step
-            num_control_rollouts=1024*4,
+            num_control_rollouts=1024*8,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
@@ -159,6 +159,24 @@ class ControlHexarotor:
         # ------------------------------
         # MPC Setup
         # ------------------------------
+        # # Trial 1:
+        # self.mpc_params = {
+        #     'inertia': self.inertia_flat,
+        #     'mass': self.hex_mass,
+        #     'horizon': 5,
+        #     'gravity': 9.81,
+        #     'max_force': 10.0,
+        #     'max_torque': 1,
+        #     'control_weight': 0.2,
+        #     'tracking_weight_pos': 6,
+        #     'tracking_weight_vel': 2,
+        #     'tracking_weight_att': 0.5,
+        #     'tracking_weight_ang_vel': 0.1,
+        #     'smoothness_weight': 0.05,
+        #     'lqr_weights' : np.array([1, 0.2, 0.05, 0.01, 2e-3, 2e-3]), # p, v, rpy, rate, f, m
+        #     'dt': 0.2
+        # }
+        # Trial 2:
         self.mpc_params = {
             'inertia': self.inertia_flat,
             'mass': self.hex_mass,
@@ -175,6 +193,7 @@ class ControlHexarotor:
             'lqr_weights' : np.array([1, 0.2, 0.05, 0.01, 2e-3, 2e-3]), # p, v, rpy, rate, f, m
             'dt': 0.2
         }
+        
         self.mpc = OneStepMPC(self.mpc_params)
         self.tube_mpc = TubeMPC(self.mpc_params)
 
@@ -489,9 +508,9 @@ class ControlHexarotor:
 
         while not rospy.is_shutdown():
             # 1) MPPI is run every (self.mpc_rate_hz // self.mppi_rate_hz) iterations
-            # if iteration % (self.mpc_rate_hz // self.mppi_rate_hz) == 0:
-            #     self.run_mppi()
-            #     self.forward_simulate_for_mpc_target()
+            if iteration % (self.mpc_rate_hz // self.mppi_rate_hz) == 0:
+                self.run_mppi()
+                self.forward_simulate_for_mpc_target()
 
             # 2) At every iteration (50 Hz), run MPC
             current_time = rospy.Time.now().to_sec()
