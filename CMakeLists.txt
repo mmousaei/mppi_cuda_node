@@ -32,10 +32,13 @@ include_directories(
 )
 
 ## Mark executable scripts (Python etc.) for installation
-catkin_install_python(PROGRAMS
-  scripts/mppi_cuda_node.py
-  scripts/mpc_mppi.py
-  scripts/mppi_numba.py
-  scripts/mavlink_transmitter.py
+file(GLOB_RECURSE PYTHON_SCRIPTS "scripts/**/*.py")
+
+catkin_install_python(PROGRAMS ${PYTHON_SCRIPTS}
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+# install(DIRECTORY controllers misc
+  # DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}
+  # FILES_MATCHING PATTERN "*.py"
+# )

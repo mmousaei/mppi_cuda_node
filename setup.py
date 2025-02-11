@@ -1,9 +1,8 @@
-from distutils.core import setup
-from catkin_pkg.python_setup import generate_distutils_setup
+from setuptools import setup, find_packages
 
-d = generate_distutils_setup(
-  packages=['mppi_cuda_node'],
-  package_dir={'': 'scripts'}
+setup(
+    name='mppi_cuda_node',
+    version='0.1.0',
+    packages=find_packages(where='src'),
+    package_dir={'': 'src'},
 )
-
-setup(**d)
