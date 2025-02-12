@@ -51,7 +51,7 @@ class MPCControllerNode(object):
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1,
-            'control_weight': 0.2,
+            'control_weight': 0.4,
             'tracking_weight_pos': 100,
             'tracking_weight_vel': 3,
             'tracking_weight_att': 100,
@@ -101,7 +101,7 @@ class MPCControllerNode(object):
         self.last_time_pid_pos_publish = rospy.Time.now()
 
         # Set up dynamic reconfigure server for tuning MPC parameters
-        self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
+        # self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
 
         rospy.loginfo("MPC Controller Node Initialization Complete.")
 
