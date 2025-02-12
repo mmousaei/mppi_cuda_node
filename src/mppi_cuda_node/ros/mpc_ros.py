@@ -19,11 +19,17 @@ from diagnostic_msgs.msg import KeyValue
 from tf.transformations import euler_from_quaternion
 
 # --- MPC imports ---
-from mppi_cuda_node.controllers.mpc.acados.acados_mpc import OneStepMPC
+from mppi_cuda_node.controllers.mpc.acados.acados_mpc import MPC
 from mppi_cuda_node.controllers.mpc.acados.acados_mpc_tube import TubeMPC
 from mppi_cuda_node.controllers.lqr.lqr_controller import LqrController
 from mppi_cuda_node.misc.mavlink.mavlink_transmitter import MavlinkTransmitter
 from scipy.spatial.transform import Rotation
+
+from dynamic_reconfigure.server import Server
+# from mppi_cuda_node.cfg.MPCParamsConfig import MPCParamsConfig
+import mppi_cuda_node.cfg.MPCParamsConfig as MPCParamsConfig
+
+
 
 class MPCControllerNode(object):
     def __init__(self):
@@ -41,21 +47,36 @@ class MPCControllerNode(object):
         self.mpc_params = {
             'inertia': self.inertia_flat,
             'mass': self.hex_mass,
+            'horizon': 30,
+            'gravity': 9.81,
+            'max_force': 10.0,
+            'max_torque': 1,
+            'control_weight': 0.2,
+            'tracking_weight_pos': 100,
+            'tracking_weight_vel': 3,
+            'tracking_weight_att': 100,
+            'tracking_weight_ang_vel': 5,
+            'smoothness_weight': 0.05,
+            'dt': 0.01
+        }
+        self.mpc_tube_params = {
+            'inertia': self.inertia_flat,
+            'mass': self.hex_mass,
             'horizon': 5,
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1,
             'control_weight': 0.2,
-            'tracking_weight_pos': 6,
-            'tracking_weight_vel': 2,
-            'tracking_weight_att': 0.5,
+            'tracking_weight_pos': 24,
+            'tracking_weight_vel': 3,
+            'tracking_weight_att': 10,
             'tracking_weight_ang_vel': 0.1,
             'smoothness_weight': 0.05,
             'lqr_weights': np.array([1, 0.2, 0.05, 0.01, 2e-3, 2e-3]),
             'dt': 0.2
         }
-        self.mpc = OneStepMPC(self.mpc_params)
-        self.tube_mpc = TubeMPC(self.mpc_params)
+        self.mpc = MPC(self.mpc_params)
+        self.tube_mpc = TubeMPC(self.mpc_tube_params)
 
         # LQR controller for auxiliary purposes (if needed)
         self.lqr_controller = LqrController()
@@ -79,6 +100,9 @@ class MPCControllerNode(object):
         self.mpc_rate_hz = 100.0  # Run MPC at 50 Hz
         self.last_time_pid_pos_publish = rospy.Time.now()
 
+        # Set up dynamic reconfigure server for tuning MPC parameters
+        self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
+
         rospy.loginfo("MPC Controller Node Initialization Complete.")
 
     def initialize_hexarotor_parameters(self):
@@ -86,6 +110,24 @@ class MPCControllerNode(object):
         self.hex_mass = 7  # kg (example value)
         self.inertia_flat = np.array([0.21, 0.21, 0.40])
         self.inertia_matrix = np.diag(self.inertia_flat)
+
+    def dynamic_reconfigure_callback(self, config, level):
+        rospy.loginfo("Reconfigure Request:\nhorizon = %d\ndt = %.3f\nmax_force = %.2f\nmax_torque = %.2f\ncontrol_weight = %.2f\ntracking_weight_pos = %.2f\ntracking_weight_vel = %.2f\ntracking_weight_att = %.2f\ntracking_weight_ang_vel = %.2f\nsmoothness_weight = %.2f",
+                      config['horizon'],config['dt'],config['max_force'],config['max_torque'],config['control_weight'],config['tracking_weight_pos'],config['tracking_weight_vel'],config['tracking_weight_att'],config['tracking_weight_ang_vel'],config['smoothness_weight'])
+        # Update your MPC parameters here
+        self.mpc_params['horizon'] = config['horizon']
+        self.mpc_params['dt'] = config['dt']
+        self.mpc_params['max_force'] = config['max_force']
+        self.mpc_params['max_torque'] = config['max_torque']
+        self.mpc_params['control_weight'] = config['control_weight']
+        self.mpc_params['tracking_weight_pos'] = config['tracking_weight_pos']
+        self.mpc_params['tracking_weight_vel'] = config['tracking_weight_vel']
+        self.mpc_params['tracking_weight_att'] = config['tracking_weight_att']
+        self.mpc_params['tracking_weight_ang_vel'] = config['tracking_weight_ang_vel']
+        self.mpc_params['smoothness_weight'] = config['smoothness_weight']
+        self.mpc.update_parameters(self.mpc_params)
+        return config
+
 
     def activate_callback(self, data):
         self.activate = data.data
@@ -141,6 +183,24 @@ class MPCControllerNode(object):
         return ctrl
 
     def run_mpc(self):
+        """
+        Solve the one-step MPC using:
+         - current_state
+         - mpc_target (set by MPPI)
+         - MPPI's first-control as the initial guess
+        """
+        # We'll use the first MPPI control as an initial guess
+        # ctrl_guess_mppi = self.optimal_control_seq[0, :].copy()
+
+        # For simplicity, just pass the raw guess in:
+        u_mpc = self.mpc.compute_control(
+            self.current_state.copy(),
+            self.mpc_target.copy(),
+            np.zeros(6),
+            self.mpc_params['dt']
+        )
+        return u_mpc
+    def run_mpc_tube(self):
         """
         Compute the control input using tube MPC.
         Uses the current state, the MPC target (from MPPI), and a nominal hover input.

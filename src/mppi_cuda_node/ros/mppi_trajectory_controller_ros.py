@@ -20,16 +20,18 @@ from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
 
 # --- MPPI imports ---
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config
-# (Assumes that your MPPI_Numba and Config are defined in mppi_numba_gravity.py)
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
+import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
+from dynamic_reconfigure.server import Server
 
-# --- LQR (for dynamics forward-simulation) ---
-from mppi_cuda_node.controllers.lqr.lqr_controller import LqrController
 from scipy.signal import butter
 from scipy.spatial.transform import Rotation
 
+
 # Global flag (if you want to enable gravity in MPPI)
 GRAVITY = True
+
+
 
 def butter_lowpass_online(cutoff, fs, order=1):
     """
@@ -55,7 +57,7 @@ class MPPIControllerNode(object):
         # ----- MPPI Setup -----
         self.cfg = Config(
             T=1,            # Horizon length in seconds
-            dt=0.2,         # Time step (seconds)
+            dt=0.1,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -73,19 +75,20 @@ class MPPIControllerNode(object):
             'dist_weight': 2000,
             'lambda_weight': 10,
             'num_opt': 6,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
+            'u_std': np.array([1.5, 1.5, 1.5, 0.05, 0.05, 0.05]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                5500, 5500, 3400,
+                15500, 15500, 18400,
                 1, 1, 10,
                 800, 800, 800,
-                100, 100, 100,
-                1, 100, 1, 100, 3000
+                10, 10, 10,
+                1, 100, 1, 100, 9000
             ]),
             "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
         }
         self.mppi_controller.set_params(self.mppi_params)
+        self.J = np.diag(self.mppi_params['inertia_mass'][:3])
 
         # Prepare an initial control sequence
         self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
@@ -99,11 +102,6 @@ class MPPIControllerNode(object):
         b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
         self.lpf = OnlineLPF(b, a, self.cfg.num_controls)
 
-        # LQR controller for forward-simulation of dynamics
-        self.lqr_controller = LqrController()
-        self.lqr_controller.m = self.hex_mass
-        self.lqr_controller.J = self.inertia_matrix
-
         # ----- Subscribers and Publishers -----
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
@@ -114,15 +112,66 @@ class MPPIControllerNode(object):
         self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
         self.target_pub_debug = rospy.Publisher('/mppi_debug/target_mpc_debug', PoseStamped, queue_size=10)
 
-        self.mppi_rate_hz = 5.0  # Run MPPI at 5 Hz
+        self.mppi_rate_hz = 10.0  # Run MPPI at 5 Hz
 
         rospy.loginfo("MPPI Controller Node Initialization Complete.")
+        # Set up dynamic reconfigure server for tuning MPC parameters
+        # self.dyn_server = Server(MPPIParamsConfig, self.dynamic_reconfigure_callback)
 
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
         self.hex_mass = 7  # kg (example value)
         self.inertia_flat = np.array([0.21, 0.21, 0.40])
         self.inertia_matrix = np.diag(self.inertia_flat)
+
+    def dynamic_reconfigure_callback(self, config, level):
+        rospy.loginfo("MPPI Dynamic Reconfigure Request:\n"
+                    "dt = %.3f\ngoal_tolerance = %.4f\ndist_weight = %.2f\nlambda_weight = %.2f\nnum_opt = %d\nu_std = [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]\nweights = [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]",
+                    config['dt'],config['goal_tolerance'],config['dist_weight'],config['lambda_weight'],config['num_opt'],config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz'],config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'], config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'], config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term'])
+        
+        # Update scalar MPPI parameters
+        self.cfg.dt = config['dt']
+        # self.mppi_params['dt'] = config['dt']
+        self.mppi_params['goal_tolerance'] = config['goal_tolerance']
+        self.mppi_params['dist_weight'] = config['dist_weight']
+        self.mppi_params['lambda_weight'] = config['lambda_weight']
+        self.mppi_params['num_opt'] = config['num_opt']
+        
+        # Reassemble the u_std array from individual elements.
+        self.mppi_params['u_std'] = np.array([ config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz']])
+        
+        # Reassemble the weights array from individual elements.
+        self.mppi_params['weights'] = np.array([ config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'], config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'], config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term']])
+    
+        # Update the MPPI controller with the new parameters.
+        self.mppi_controller.set_params(self.mppi_params)
+        
+        return config
+    
+    def hex_dynamics(self, x, u):
+        p, v, Psi, omega = np.split(x, 4)
+        f_T, m_T = u[:3], u[3:]
+        phi, theta, psi = Psi
+        R = np.array([
+            [np.cos(theta)*np.cos(psi), np.cos(theta)*np.sin(psi), -np.sin(theta)],
+            [np.sin(phi)*np.sin(theta)*np.cos(psi) - np.cos(phi)*np.sin(psi), np.sin(phi)*np.sin(theta)*np.sin(psi) + np.cos(phi)*np.cos(psi), np.sin(phi)*np.cos(theta)],
+            [np.cos(phi)*np.sin(theta)*np.cos(psi) + np.sin(phi)*np.sin(psi), np.cos(phi)*np.sin(theta)*np.sin(psi) - np.sin(phi)*np.cos(psi), np.cos(phi)*np.cos(theta)]
+        ])
+        gravity_world = np.array([0, 0, -9.81])
+        gravity_body = np.dot(R.T, gravity_world)  # Rotate gravity to body frame
+
+        nu = np.array([
+            [1, np.sin(phi) * np.tan(theta), np.cos(phi) * np.tan(theta)],
+            [0, np.cos(phi), -np.sin(phi)],
+            [0, np.sin(phi) / np.cos(theta), np.cos(phi) / np.cos(theta)]
+        ])
+
+        p_dot = v
+        v_dot = (1/self.mppi_params['inertia_mass'][3]) * f_T + gravity_body
+        psi_dot = np.dot(nu, omega)
+        omega_dot = np.dot(np.linalg.inv(self.J), m_T - np.cross(omega, np.dot(self.J, omega)))
+
+        return np.concatenate([p_dot, v_dot, psi_dot, omega_dot])
 
     def activate_callback(self, data):
         self.activate = data.data
@@ -183,12 +232,16 @@ class MPPIControllerNode(object):
     def dynamics_update(self, state, control_inputs, dt):
         """
         A simple RK4 integration for the hexarotor dynamics.
-        Uses the LQR controller’s dynamics function as an example.
         """
-        k1 = self.lqr_controller.hex_dynamics(state, control_inputs) * dt
-        k2 = self.lqr_controller.hex_dynamics(state + k1 / 2, control_inputs) * dt
-        k3 = self.lqr_controller.hex_dynamics(state + k2 / 2, control_inputs) * dt
-        k4 = self.lqr_controller.hex_dynamics(state + k3, control_inputs) * dt
+        # k1 = dynamics_update_sim(state, control_inputs, dt)
+        # k2 = dynamics_update_sim(state + k1 / 2, control_inputs, dt) 
+        # k3 = dynamics_update_sim(state + k2 / 2, control_inputs, dt)
+        # k4 = dynamics_update_sim(state + k3, control_inputs, dt)
+        
+        k1 = self.hex_dynamics(state, control_inputs) * dt
+        k2 = self.hex_dynamics(state + k1 / 2, control_inputs) * dt 
+        k3 = self.hex_dynamics(state + k2 / 2, control_inputs) * dt
+        k4 = self.hex_dynamics(state + k3, control_inputs) * dt
         next_state = state + (k1 + 2*k2 + 2*k3 + k4) / 6
         return next_state
 

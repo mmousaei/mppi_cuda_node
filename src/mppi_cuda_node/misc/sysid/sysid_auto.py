@@ -8,6 +8,13 @@ and uses its dynamics model to estimate vehicle parameters:
   - Inertias (from angular dynamics)
   - 6D Normalization factors (for forces and torques)
 
+It reads all the bagfiles in a specified folder. For each bagfile, the active flight period is defined as:
+  - Start time: when the topic /mppi/activate first becomes True.
+  - Stop time: when the topic /mppi/activate becomes False OR when the topic mavros/state has mode "AUTO.LAND"
+    (whichever happens first).
+
+The state and control data within this active period are extracted, combined across bagfiles, and then used for system identification.
+
 **Note:** The controls stored in the bagfile are normalized via your
 normalize_control_inputs_mpc() function. Therefore, they are de-normalized before estimation
 using the inverse scaling:
@@ -16,11 +23,13 @@ using the inverse scaling:
   - Torques remain unchanged.
 
 Usage:
-  python estimate_params_from_acados_mpc.py --bagfiles data1.bag,0,100 data2.bag,120,200 \
+  python estimate_params_from_acados_mpc.py --bagfolder /path/to/bagfiles \
          --state_topic /odometry --control_topic /mppi_debug/control_cmd
 """
 
 import argparse
+import os
+import glob
 import rosbag
 import numpy as np
 import math
@@ -31,6 +40,36 @@ from scipy.optimize import least_squares
 # Import your MPC implementation
 from mppi_cuda_node.controllers.mpc.acados.acados_mpc import MPC
 
+# -------------------------------
+# Helper function: Piecewise Gradient
+# -------------------------------
+
+def piecewise_gradient(x, t, gap_threshold=1.0):
+    """
+    Computes the gradient of x with respect to t piecewise, splitting the data when a time gap exceeds gap_threshold.
+    
+    Parameters:
+      x : 1D numpy array.
+      t : 1D numpy array of time stamps corresponding to x.
+      gap_threshold : threshold for identifying discontinuities (default 1.0 second).
+      
+    Returns:
+      grad : 1D numpy array of the same shape as x containing the gradient.
+    """
+    grad = np.zeros_like(x)
+    # Identify indices where time gap is large
+    dt = np.diff(t)
+    # Find split indices where gap > gap_threshold
+    split_indices = np.where(dt > gap_threshold)[0] + 1
+    # Split indices into segments
+    indices = np.arange(len(x))
+    segments = np.split(indices, split_indices)
+    for seg in segments:
+        if len(seg) == 1:
+            grad[seg[0]] = 0.0
+        else:
+            grad[seg] = np.gradient(x[seg], t[seg])
+    return grad
 
 # -------------------------------
 # De-normalization Function
@@ -62,7 +101,6 @@ def denormalize_controls(ctrl_norm, nominal_mass):
     """
     hover_thrust = 0.6567
     scaling_factor_xy = 0.515336334
-    # ctrl_norm is assumed to be 2D: (N,6)
     Fx_raw = ctrl_norm[:, 0] / scaling_factor_xy
     Fy_raw = ctrl_norm[:, 1] / scaling_factor_xy
     Fz_raw = ctrl_norm[:, 2] * (nominal_mass * 9.81 / hover_thrust)
@@ -73,19 +111,77 @@ def denormalize_controls(ctrl_norm, nominal_mass):
     return ctrl_raw
 
 # -------------------------------
+# Active Period Extraction
+# -------------------------------
+
+def get_active_period(bagfile_path):
+    """
+    Determines the active flight period in a bagfile.
+    Active period starts at the first instance when /mppi/activate becomes True,
+    and ends at the first instance (after activation) when /mppi/activate becomes False
+    or when mavros/state reports mode "AUTO.LAND".
+    
+    Parameters:
+      bagfile_path : path to the bagfile.
+      
+    Returns:
+      (t_begin, t_end) : tuple of start and stop times (in seconds, relative to bag start).
+                         If no activation is found, returns (None, None).
+    """
+    bag = rosbag.Bag(bagfile_path)
+    bag_start = None
+    t_begin = None
+    t_end = None
+    last_rel_time = 0.0
+    for topic, msg, t in bag.read_messages(topics=["/mppi/activate", "mavros/state"]):
+        t_sec = t.to_sec()
+        if bag_start is None:
+            bag_start = t_sec
+        rel_t = t_sec - bag_start
+        last_rel_time = rel_t
+        if topic == "/mppi/activate":
+            # Assuming msg.data is a boolean.
+            if t_begin is None and msg.data == True:
+                t_begin = rel_t
+            elif t_begin is not None and msg.data == False and t_end is None:
+                t_end = rel_t
+        elif topic == "mavros/state":
+            # Assuming msg.mode is a string.
+            if t_begin is not None and msg.mode == "AUTO.LAND" and t_end is None:
+                t_end = rel_t
+        # If both are set, we can break early.
+        if t_begin is not None and t_end is not None:
+            break
+    bag.close()
+    if t_begin is None:
+        return None, None
+    if t_end is None:
+        t_end = last_rel_time
+    return t_begin, t_end
+
+# -------------------------------
 # Data Loading
 # -------------------------------
 
 def load_data_from_bagfile(bagfile_path, state_topic, control_topic, t_begin, t_end):
     """
-    Loads state and control messages from a bagfile.
-    Time is made relative using the first message timestamp.
-    Only messages with relative time in [t_begin, t_end] are used.
+    Loads state and control messages from a bagfile within the time window [t_begin, t_end].
+    Time is relative to the bagfile's start.
     
     Expected state message (e.g. nav_msgs/Odometry):
       [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
     Expected control message (e.g. WrenchStamped):
       [Fx, Fy, Fz, tau_x, tau_y, tau_z] (normalized)
+    
+    Parameters:
+      bagfile_path : path to the bagfile.
+      state_topic : topic for state messages.
+      control_topic : topic for control messages.
+      t_begin : start time (relative to bag start) to begin data extraction.
+      t_end : end time (relative to bag start) to end data extraction.
+      
+    Returns:
+      (t_state, states, t_control, controls) as numpy arrays.
     """
     bag = rosbag.Bag(bagfile_path)
     t_state_list = []
@@ -155,7 +251,7 @@ def load_data_from_bagfile(bagfile_path, state_topic, control_topic, t_begin, t_
 
 def estimate_mass(t, states, controls_raw, g=9.81):
     """
-    Estimate the mass using vertical dynamics, but restrict the estimation to near-hover samples.
+    Estimate the mass using vertical dynamics, restricted to near-hover samples.
     
     In near hover (small roll and pitch, low vertical acceleration),
       m_i = F_z / (g * cos(phi) * cos(theta))
@@ -170,100 +266,105 @@ def estimate_mass(t, states, controls_raw, g=9.81):
     Returns:
       m_est : estimated mass.
     """
-    # Extract needed state components
     vz = states[:, 5]
     phi = states[:, 6]
     theta = states[:, 7]
     
-    # Extract vertical thrust (Fz)
     Fz = controls_raw[:, 2]
     
-    # Use the near-hover region: small roll and pitch
     near_hover = (np.abs(phi) < 0.1) & (np.abs(theta) < 0.1)
     
     if not np.any(near_hover):
         print("Warning: No near-hover samples found; cannot reliably estimate mass.")
         return None
 
-    # For near-hover, we expect vz_dot to be very small so that:
-    # m ~ Fz / (g * cos(phi) * cos(theta))
     m_samples = Fz[near_hover] / (g * np.cos(phi[near_hover]) * np.cos(theta[near_hover]))
     m_est = np.median(m_samples)
     
     print("Median mass from near-hover samples:", m_est)
     return m_est
-def residual_inertias(params, states, controls_raw):
+
+def residual_inertias(params, states, controls_raw, t):
     """
-    Residual function for inertias.
+    Residual function for inertias estimation.
     
     For each time step, the model for roll dynamics is:
       p_dot = (1/I_xx) * (tau_x + (I_yy-I_zz)*q*r)
-    Similarly for pitch and yaw:
-      q_dot = (1/I_yy) * (tau_y + (I_zz-I_xx)*p*r)
-      r_dot = (1/I_zz) * (tau_z + (I_xx-I_yy)*p*q)
+    and similarly for pitch and yaw.
     
-    Rearranged, we define residuals:
+    Rearranged, the residuals are:
       r1 = tau_x - I_xx * p_dot + (I_yy - I_zz)*q*r
       r2 = tau_y - I_yy * q_dot + (I_zz - I_xx)*p*r
       r3 = tau_z - I_zz * r_dot + (I_xx - I_yy)*p*q
     
-    This function returns a concatenated residual vector.
+    Parameters:
+      params : array-like, [I_xx, I_yy, I_zz]
+      states : state array with columns including angular velocities p, q, r at indices 9, 10, 11.
+      controls_raw : raw control array with torques at indices 3, 4, 5.
+      t : time array corresponding to the states.
+      
+    Returns:
+      Concatenated residual vector.
     """
     I_xx, I_yy, I_zz = params
-    # Angular velocities
     p = states[:, 9]
     q = states[:, 10]
     r = states[:, 11]
-    # Compute derivatives of angular velocities:
-    p_dot = np.gradient(p, states[:,0])  # We do not have explicit time here so use spacing from first state.
-    # Instead, better: assume uniform spacing and use np.gradient with respect to time vector.
-    # (We will pass time separately if needed; here we assume similar sampling rate.)
-    # For clarity, we assume dt is constant. Here we re-use np.gradient on p, q, r
-    dt = np.mean(np.diff(np.linspace(0, len(p), len(p))))
-    p_dot = np.gradient(p, dt)
-    q_dot = np.gradient(q, dt)
-    r_dot = np.gradient(r, dt)
-    # Torques from controls:
+    
+    p_dot = piecewise_gradient(p, t)
+    q_dot = piecewise_gradient(q, t)
+    r_dot = piecewise_gradient(r, t)
+    
     tau_x = controls_raw[:, 3]
     tau_y = controls_raw[:, 4]
     tau_z = controls_raw[:, 5]
+    
     r1 = tau_x - I_xx * p_dot + (I_yy - I_zz) * q * r
     r2 = tau_y - I_yy * q_dot + (I_zz - I_xx) * p * r
     r3 = tau_z - I_zz * r_dot + (I_xx - I_yy) * p * q
+    
     return np.concatenate((r1, r2, r3))
 
-def estimate_inertias(states, controls_raw, I_guess):
+def estimate_inertias(t, states, controls_raw, I_guess):
     """
     Estimate the three inertias by minimizing the residuals from the angular dynamics.
+    
+    Parameters:
+      t : time array corresponding to the states.
+      states : state array.
+      controls_raw : raw control array.
+      I_guess : initial guess for [I_xx, I_yy, I_zz].
+      
+    Returns:
+      Estimated inertias as an array.
     """
-    # We use least_squares to solve the nonlinear regression.
-    result = least_squares(residual_inertias, I_guess, args=(states, controls_raw))
+    result = least_squares(lambda params: residual_inertias(params, states, controls_raw, t), I_guess)
     return result.x
 
 def estimate_normalization_factors(t, states, controls_norm, controls_raw, m_est, I_est, g=9.81):
     """
-    Estimate the scaling factors (for Fx, Fy, Fz, tau_x, tau_y, tau_z) used
-    in your normalization function.
+    Estimate the scaling factors for normalization of control inputs.
     
-    We assume that during near-hover conditions (small angles and low velocities)
-    the following approximations hold:
-    
+    Assumes that during near-hover conditions, the following approximations hold:
       Fx_raw = m_est * ax,
       Fy_raw = m_est * ay,
       Fz_raw = m_est * (az + g),
       tau_x_raw = I_est[0] * p_dot,
       tau_y_raw = I_est[1] * q_dot,
       tau_z_raw = I_est[2] * r_dot.
-    
-    Since the bagfile recorded normalized controls (controls_norm) and you have
-    already computed raw controls (controls_raw) using your nominal factors, you can
-    form for each channel:
-    
-       scaling = normalized / raw
-    
-    and then average over “good” indices.
+      
+    Parameters:
+      t : time array.
+      states : state array.
+      controls_norm : normalized control array.
+      controls_raw : raw control array.
+      m_est : estimated mass.
+      I_est : estimated inertias [I_xx, I_yy, I_zz].
+      g : gravity.
+      
+    Returns:
+      Normalization factors for [Fx, Fy, Fz, tau_x, tau_y, tau_z].
     """
-    # Identify near-hover segments: small roll and pitch and small velocities.
     phi = states[:, 6]
     theta = states[:, 7]
     vx = states[:, 3]
@@ -274,31 +375,25 @@ def estimate_normalization_factors(t, states, controls_norm, controls_raw, m_est
         print("Warning: no near-hover segments found for normalization estimation.")
         near_hover = np.ones_like(vx, dtype=bool)
     
-    # Compute accelerations
-    ax = np.gradient(vx, t)
-    ay = np.gradient(vy, t)
-    vz_dot = np.gradient(vz, t)
-    # For torques, compute angular accelerations (p_dot, q_dot, r_dot)
+    ax = piecewise_gradient(vx, t)
+    ay = piecewise_gradient(vy, t)
+    vz_dot = piecewise_gradient(vz, t)
+    
     p = states[:, 9]
     q = states[:, 10]
     r = states[:, 11]
-    dt = np.mean(np.diff(t))
-    p_dot = np.gradient(p, dt)
-    q_dot = np.gradient(q, dt)
-    r_dot = np.gradient(r, dt)
+    p_dot = piecewise_gradient(p, t)
+    q_dot = piecewise_gradient(q, t)
+    r_dot = piecewise_gradient(r, t)
     
-    # Raw controls from dynamics (expected raw command) computed from measured accelerations:
-    # For Fx: F_raw = m_est * ax, similarly Fy.
     Fx_est = m_est * ax
     Fy_est = m_est * ay
-    # For Fz: from vertical dynamics at hover, az ~ (Fz/m) - g, so Fz = m*(vz_dot + g)
     Fz_est = m_est * (vz_dot + g)
-    # For torques:
+    
     tau_x_est = I_est[0] * p_dot
     tau_y_est = I_est[1] * q_dot
     tau_z_est = I_est[2] * r_dot
     
-    # Compute per-sample ratios (only over near-hover indices and avoiding near-zero denominators)
     def safe_ratio(norm, est):
         valid = (np.abs(est) > 1e-3) & near_hover
         if np.sum(valid) < 1:
@@ -320,30 +415,39 @@ def estimate_normalization_factors(t, states, controls_norm, controls_raw, m_est
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Estimate mass, inertias, and 6D normalization factors using your acados MPC dynamics model from flight data.")
-    parser.add_argument("--bagfiles", nargs="+", required=True,
-                        help="List of bagfile specs in the format: path,begin,end (e.g., data1.bag,0,100 data2.bag,120,200)")
+        description="Estimate mass, inertias, and 6D normalization factors using acados MPC dynamics model from flight data in bagfiles.")
+    parser.add_argument("--bagfolder", required=True,
+                        help="Folder containing bagfiles")
     parser.add_argument("--state_topic", default="/odometry", help="State topic (default: /odometry)")
     parser.add_argument("--control_topic", default="/mppi_debug/control_cmd", help="Control topic (default: /mppi_debug/control_cmd)")
     args = parser.parse_args()
 
+    bagfolder = args.bagfolder
+    bag_files = sorted(glob.glob(os.path.join(bagfolder, "*.bag")))
+    if not bag_files:
+        print("No bagfiles found in folder:", bagfolder)
+        return
+
     all_t = []
     all_states = []
-    all_controls_norm = []  # these are the normalized controls as recorded
+    all_controls_norm = []  # these are normalized controls as recorded
 
-    for spec in args.bagfiles:
-        try:
-            bag_path, t_begin_str, t_end_str = spec.split(",")
-            t_begin = float(t_begin_str)
-            t_end = float(t_end_str)
-        except Exception as e:
-            print("Error parsing bagfile spec '{}': {}".format(spec, e))
+    global_time_offset = 0.0
+
+    for bag_path in bag_files:
+        print("Processing bagfile:", bag_path)
+        active_period = get_active_period(bag_path)
+        if active_period[0] is None:
+            print("  No active period found in bagfile; skipping.")
             continue
-        print("Processing bagfile: {} (relative t = {} to {})".format(bag_path, t_begin, t_end))
+        t_begin, t_end = active_period
+        print("  Active period: t_begin = {:.2f} s, t_end = {:.2f} s".format(t_begin, t_end))
+        
         t_state, states, t_control, controls = load_data_from_bagfile(bag_path, args.state_topic, args.control_topic, t_begin, t_end)
         if len(t_state) < 2 or len(t_control) < 2:
-            print("Not enough data in bagfile:", bag_path)
+            print("  Not enough data in active period for bagfile:", bag_path)
             continue
+        
         # Interpolate normalized controls onto state timestamps.
         Fx_interp = interp1d(t_control, controls[:,0], kind='linear', fill_value="extrapolate")
         Fy_interp = interp1d(t_control, controls[:,1], kind='linear', fill_value="extrapolate")
@@ -357,7 +461,12 @@ def main():
                                                  tau_x_interp(t_state),
                                                  tau_y_interp(t_state),
                                                  tau_z_interp(t_state)))
-        all_t.append(t_state)
+        # Adjust time to be continuous across bagfiles.
+        t_state_adjusted = t_state + global_time_offset
+        if len(t_state_adjusted) > 0:
+            global_time_offset = t_state_adjusted[-1] + 0.1  # add a small gap
+        
+        all_t.append(t_state_adjusted)
         all_states.append(states)
         all_controls_norm.append(controls_interp_norm)
 
@@ -378,7 +487,6 @@ def main():
     params = {
         'inertia': [0.115125971, 0.116524229, 0.230387752],
         'mass': 7.00,  # nominal mass used for normalization
-        'horizon': 5,
         'gravity': 9.81,
         'max_force': 20.0,
         'max_torque': 0.05,
@@ -397,11 +505,14 @@ def main():
 
     # Estimate mass using vertical dynamics.
     m_est = estimate_mass(t_all, states_all, controls_all_raw, g=params["gravity"])
+    if m_est is None:
+        print("Mass estimation failed. Exiting.")
+        return
     print("Estimated mass: {:.3f} kg".format(m_est))
 
     # Estimate inertias using angular dynamics.
     I_guess = np.array(params["inertia"])  # initial guess from nominal parameters
-    I_est = estimate_inertias(states_all, controls_all_raw, I_guess)
+    I_est = estimate_inertias(t_all, states_all, controls_all_raw, I_guess)
     print("Estimated inertias: I_xx={:.5f}, I_yy={:.5f}, I_zz={:.5f}".format(*I_est))
 
     # Estimate normalization factors.

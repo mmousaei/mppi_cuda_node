@@ -11,12 +11,24 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   message_generation
+  dynamic_reconfigure
 )
 
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
+# Optionally set the CMP0148 policy to suppress Python-related warnings.
+if(POLICY CMP0148)
+  cmake_policy(SET CMP0148 NEW)
+endif()
+
+## This macro ensures that modules and global scripts declared in setup.py get installed
 catkin_python_setup()
+
+## Generate dynamic reconfigure parameters in the 'cfg' folder
+## (Must be called after catkin_python_setup() and before catkin_package())
+generate_dynamic_reconfigure_options(
+  cfg/MPCParams.cfg
+  cfg/MPPIParams.cfg
+)
+# add_dependencies(MPCParams ${PROJECT_NAME}_gencfg)
 
 ###################################
 ## catkin specific configuration ##
@@ -38,7 +50,8 @@ catkin_install_python(PROGRAMS ${PYTHON_SCRIPTS}
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+# (Optional) Install additional directories if needed.
 # install(DIRECTORY controllers misc
-  # DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}
-  # FILES_MATCHING PATTERN "*.py"
+#   DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}
+#   FILES_MATCHING PATTERN "*.py"
 # )

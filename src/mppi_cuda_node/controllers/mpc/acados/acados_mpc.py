@@ -6,7 +6,7 @@ import os
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel
 
 
-class OneStepMPC:
+class MPC:
     def __init__(self, params):
         """
         Initialize the one-step MPC controller.
@@ -23,9 +23,13 @@ class OneStepMPC:
         self.model = self.build_full_hexarotor_model()
 
         # Set up horizon
-        self.horizon = 5  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
+        self.horizon = params["horizon"]  # e.g. 29 steps -> (29+1) knot points if you use discrete shooting
         self.ocp_solver = self.build_acados_ocp_solver()
         self.initialized = True
+
+    def update_parameters(self, new_params):
+        self.params = new_params.copy()
+        self.__init__(self.params)
 
     def build_full_hexarotor_model(self):
         """
@@ -253,7 +257,7 @@ def simulate_hexarotor_dynamics(params, mpc,
     Simulate the hexarotor for `steps` steps using the MPC in the loop.
     
     - params: dictionary of parameters, includes 'dt'
-    - mpc: instance of OneStepMPC
+    - mpc: instance of MPC
     - initial_state: 12D numpy array
     - target_state: 12D numpy array (desired)
     - steps: number of simulation steps
@@ -308,7 +312,7 @@ def main():
     }
 
     # Build the MPC
-    mpc = OneStepMPC(params)
+    mpc = MPC(params)
 
     # Initial and target states
     initial_state = np.zeros(12)

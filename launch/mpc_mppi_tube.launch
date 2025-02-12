@@ -19,10 +19,10 @@
         <param name="mppi_device" value="$(arg device)"/>
 	</node>
 
-    <!-- <node pkg="mppi_cuda_node" type="mppi_trajectory_controller_ros.py" name="mppi_node" output="screen"> 
+    <node pkg="mppi_cuda_node" type="mppi_trajectory_controller_ros.py" name="mppi_node" output="screen"> 
         <param name="/odom_topic" value="/odometry"/>
         <param name="/activate_topic" value="/activate_mppi"/>
         <param name="mppi_device" value="$(arg device)"/>
-	</node> -->
+	</node>
 
 </launch>
