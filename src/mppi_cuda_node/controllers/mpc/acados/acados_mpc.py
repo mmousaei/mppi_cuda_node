@@ -149,7 +149,7 @@ class MPC:
         Q = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos']*16,    # pz
+            params['tracking_weight_pos']*8,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
@@ -169,6 +169,21 @@ class MPC:
             params['control_weight']*10,  # tau_y
             params['control_weight']*10   # tau_z
         ])
+        
+        Q_terminal = np.diag([
+            params['tracking_weight_pos'],    # px
+            params['tracking_weight_pos'],    # py
+            params['tracking_weight_pos']*8,    # pz
+            params['tracking_weight_vel'],    # vx
+            params['tracking_weight_vel'],    # vy
+            params['tracking_weight_vel'],    # vz
+            params['tracking_weight_att'],    # phi
+            params['tracking_weight_att'],    # theta
+            params['tracking_weight_att'],    # psi
+            params['tracking_weight_ang_vel'],# p
+            params['tracking_weight_ang_vel'],# q
+            params['tracking_weight_ang_vel'] # r
+        ]) * params['terminal_weight']
 
         # Combined W for [x;u]
         W = np.block([
@@ -177,14 +192,22 @@ class MPC:
         ])
         ocp.cost.W = W
 
+        # Terminal cost matrix
+        ocp.cost.W_e = Q_terminal
+
         # Vx, Vu define how we pick (x,u) into the cost function
         # The dimension of the cost residual is 12+6 = 18
         # So we want Vx to shape that 18D residual from x, and Vu from u
         ocp.cost.Vx = np.eye(18)[:, :12]   # first 12 columns map to state
         ocp.cost.Vu = np.eye(18)[:, 12:]   # last 6 columns map to control
 
+        # Terminal state tracking matrix
+        ocp.cost.Vx_e = np.eye(12)  # Maps 12D state to cost
+
         # Reference (yref), dimension 18
         ocp.cost.yref = np.zeros(18)
+        # Terminal reference state (desired final state)
+        ocp.cost.yref_e = np.zeros(12)
 
         # Control constraints
         max_force = params['max_force']
@@ -237,6 +260,9 @@ class MPC:
             self.ocp_solver.set(i, "yref", yref)
             # Optionally set an initial guess for the controls at each node
             self.ocp_solver.set(i, "u", initial_guess)
+
+        # **Update the terminal cost reference**:
+        self.ocp_solver.set(self.horizon, "yref", target_state)  # Last state should track final state
 
         # Solve the OCP
         status = self.ocp_solver.solve()

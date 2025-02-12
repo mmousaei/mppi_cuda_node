@@ -17,12 +17,15 @@ from geometry_msgs.msg import WrenchStamped, PoseStamped, Vector3Stamped
 from core_trajectory_msgs.msg import FixedTrajectory
 from diagnostic_msgs.msg import KeyValue
 from tf.transformations import euler_from_quaternion
+import casadi as cs
+
 
 # --- MPC imports ---
 from mppi_cuda_node.controllers.mpc.acados.acados_mpc import MPC
 from mppi_cuda_node.controllers.mpc.acados.acados_mpc_tube import TubeMPC
 from mppi_cuda_node.controllers.lqr.lqr_controller import LqrController
 from mppi_cuda_node.misc.mavlink.mavlink_transmitter import MavlinkTransmitter
+from mppi_cuda_node.controllers.l1.l1_adaptive import L1AdaptiveController
 from scipy.spatial.transform import Rotation
 
 from dynamic_reconfigure.server import Server
@@ -37,6 +40,9 @@ class MPCControllerNode(object):
         rospy.loginfo("Initializing MPC Controller Node ...")
 
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
+        self.prev_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
+        self.u_mpc = np.zeros(6)
+        self.prev_u_mpc = np.zeros(6)
         self.mpc_target = np.zeros(12)     # To be updated from the MPPI node
         self.mpc_target[2] = 0.8
         self.activate = False
@@ -44,21 +50,29 @@ class MPCControllerNode(object):
         self.initialize_hexarotor_parameters()
 
         # ----- MPC Setup -----
-        self.mpc_params = {
+        self.mpc_l1_params = {
+            # MPC parameters:
             'inertia': self.inertia_flat,
             'mass': self.hex_mass,
             'horizon': 30,
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1,
-            'control_weight': 0.5,
-            'tracking_weight_pos': 20,
+            'control_weight': 0.3,
+            'tracking_weight_pos': 10,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 20,
+            'tracking_weight_att': 30,
             'tracking_weight_ang_vel': 5,
-            'terminal_weight': 2,
+            'terminal_weight': 1,
             'smoothness_weight': 0.05,
-            'dt': 0.01
+            'dt': 0.01,
+            # L1 adaptive controller parameters:
+            # 'l1_adaptation_gain': 0.0,
+            # 'l1_filter_cutoff': 0.0000001
+            'l1_adaptation_gain_pos_vertical':   0.005,
+            'l1_adaptation_gain_pos_horizontal': 0.005,
+            'l1_adaptation_gain_att':            0.01,
+            'l1_filter_cutoff': 25
         }
         self.mpc_tube_params = {
             'inertia': self.inertia_flat,
@@ -76,8 +90,11 @@ class MPCControllerNode(object):
             'lqr_weights': np.array([1, 0.2, 0.05, 0.01, 2e-3, 2e-3]),
             'dt': 0.2
         }
-        self.mpc = MPC(self.mpc_params)
+        self.mpc = MPC(self.mpc_l1_params)
         self.tube_mpc = TubeMPC(self.mpc_tube_params)
+        
+        f_nominal = cs.Function('f_nominal', [self.mpc.model.x, self.mpc.model.u], [self.mpc.model.f_expl_expr]) # Create a CasADi function for the nominal dynamics for the L1 controller).
+        self.l1_adaptive = L1AdaptiveController(self.mpc_l1_params, f_nominal)
 
         # LQR controller for auxiliary purposes (if needed)
         self.lqr_controller = LqrController()
@@ -86,6 +103,8 @@ class MPCControllerNode(object):
 
         # ----- Publishers -----
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
+        self.control_pub_umpc = rospy.Publisher('/mppi_debug/control_cmd_umpc', WrenchStamped, queue_size=10)
+        self.control_pub_uadapt = rospy.Publisher('/mppi_debug/control_cmd_uadapt', WrenchStamped, queue_size=10)
         self.att_debug_pub = rospy.Publisher('/mppi_debug/att_debug', Vector3Stamped, queue_size=10)
         self.fixed_traj_pub = rospy.Publisher("/fixed_trajectory", FixedTrajectory, queue_size=10)
 
@@ -110,23 +129,24 @@ class MPCControllerNode(object):
         # Set your hexarotor parameters (tweak as needed)
         self.hex_mass = 7  # kg (example value)
         self.inertia_flat = np.array([0.21, 0.21, 0.40])
+        # self.inertia_flat = np.array([0.71, 0.71, 0.90]) # mismatch
         self.inertia_matrix = np.diag(self.inertia_flat)
 
     def dynamic_reconfigure_callback(self, config, level):
         rospy.loginfo("Reconfigure Request:\nhorizon = %d\ndt = %.3f\nmax_force = %.2f\nmax_torque = %.2f\ncontrol_weight = %.2f\ntracking_weight_pos = %.2f\ntracking_weight_vel = %.2f\ntracking_weight_att = %.2f\ntracking_weight_ang_vel = %.2f\nsmoothness_weight = %.2f",
                       config['horizon'],config['dt'],config['max_force'],config['max_torque'],config['control_weight'],config['tracking_weight_pos'],config['tracking_weight_vel'],config['tracking_weight_att'],config['tracking_weight_ang_vel'],config['smoothness_weight'])
         # Update your MPC parameters here
-        self.mpc_params['horizon'] = config['horizon']
-        self.mpc_params['dt'] = config['dt']
-        self.mpc_params['max_force'] = config['max_force']
-        self.mpc_params['max_torque'] = config['max_torque']
-        self.mpc_params['control_weight'] = config['control_weight']
-        self.mpc_params['tracking_weight_pos'] = config['tracking_weight_pos']
-        self.mpc_params['tracking_weight_vel'] = config['tracking_weight_vel']
-        self.mpc_params['tracking_weight_att'] = config['tracking_weight_att']
-        self.mpc_params['tracking_weight_ang_vel'] = config['tracking_weight_ang_vel']
-        self.mpc_params['smoothness_weight'] = config['smoothness_weight']
-        self.mpc.update_parameters(self.mpc_params)
+        self.mpc_l1_params['horizon'] = config['horizon']
+        self.mpc_l1_params['dt'] = config['dt']
+        self.mpc_l1_params['max_force'] = config['max_force']
+        self.mpc_l1_params['max_torque'] = config['max_torque']
+        self.mpc_l1_params['control_weight'] = config['control_weight']
+        self.mpc_l1_params['tracking_weight_pos'] = config['tracking_weight_pos']
+        self.mpc_l1_params['tracking_weight_vel'] = config['tracking_weight_vel']
+        self.mpc_l1_params['tracking_weight_att'] = config['tracking_weight_att']
+        self.mpc_l1_params['tracking_weight_ang_vel'] = config['tracking_weight_ang_vel']
+        self.mpc_l1_params['smoothness_weight'] = config['smoothness_weight']
+        self.mpc.update_parameters(self.mpc_l1_params)
         return config
 
 
@@ -134,6 +154,7 @@ class MPCControllerNode(object):
         self.activate = data.data
 
     def odometry_callback(self, data):
+        self.prev_state = self.current_state.copy()
         self.odom = data
         pose = data.pose.pose
         twist = data.twist.twist
@@ -192,13 +213,12 @@ class MPCControllerNode(object):
         """
         # We'll use the first MPPI control as an initial guess
         # ctrl_guess_mppi = self.optimal_control_seq[0, :].copy()
-
         # For simplicity, just pass the raw guess in:
         u_mpc = self.mpc.compute_control(
             self.current_state.copy(),
             self.mpc_target.copy(),
             np.zeros(6),
-            self.mpc_params['dt']
+            self.mpc_l1_params['dt']
         )
         return u_mpc
     def run_mpc_tube(self):
@@ -258,12 +278,36 @@ class MPCControllerNode(object):
         self.fixed_traj_pub.publish(traj)
         self.last_time_pid_pos_publish = rospy.Time.now()
 
+    def publish_umpc_uadapt_debug(self, u_mpc, u_adapt):
+        cmd_msg = WrenchStamped()
+        cmd_msg.header.stamp = rospy.Time.now()
+        cmd_msg.wrench.force.x =  u_mpc[0].copy()
+        cmd_msg.wrench.force.y =  u_mpc[1].copy()
+        cmd_msg.wrench.force.z =  u_mpc[2].copy()
+        cmd_msg.wrench.torque.x = u_mpc[3].copy()
+        cmd_msg.wrench.torque.y = u_mpc[4].copy()
+        cmd_msg.wrench.torque.z = u_mpc[5].copy()
+        self.control_pub_umpc.publish(cmd_msg)
+        cmd_msg2 = WrenchStamped()
+        cmd_msg2.header.stamp = rospy.Time.now()
+        cmd_msg2.wrench.force.x =  u_adapt[0].copy()
+        cmd_msg2.wrench.force.y =  u_adapt[1].copy()
+        cmd_msg2.wrench.force.z =  u_adapt[2].copy()
+        cmd_msg2.wrench.torque.x = u_adapt[3].copy()
+        cmd_msg2.wrench.torque.y = u_adapt[4].copy()
+        cmd_msg2.wrench.torque.z = u_adapt[5].copy()
+        self.control_pub_uadapt.publish(cmd_msg2)
+
     def spin(self):
         rate = rospy.Rate(self.mpc_rate_hz)
         while not rospy.is_shutdown():
-            u_mpc = self.run_mpc()
-            u_mpc_norm = self.normalize_control_inputs_mpc(u_mpc.copy())
-            self.publish_cmd(u_mpc_norm)
+            self.prev_u_mpc = self.u_mpc
+            self.u_mpc = self.run_mpc()
+            u_adapt = self.l1_adaptive.update(self.current_state.copy(), self.prev_state.copy(), self.prev_u_mpc.copy(), dt=(1/self.mpc_rate_hz))
+            self.publish_umpc_uadapt_debug(self.u_mpc.copy(), u_adapt.copy())
+            u_total = self.u_mpc + u_adapt
+            u_total_norm = self.normalize_control_inputs_mpc(u_total.copy())
+            self.publish_cmd(u_total_norm)
             rate.sleep()
 
 
