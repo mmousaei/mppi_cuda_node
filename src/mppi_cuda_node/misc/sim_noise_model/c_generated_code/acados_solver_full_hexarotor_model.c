@@ -402,43 +402,43 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     else
     {
         // set time_steps
-    double time_step = 0.3;
+    double time_step = 0.01;
         for (int i = 0; i < N; i++)
         {
             ocp_nlp_in_set(nlp_config, nlp_dims, nlp_in, i, "Ts", &time_step);
         }
         // set cost scaling
         double* cost_scaling = malloc((N+1)*sizeof(double));
-        cost_scaling[0] = 0.3;
-        cost_scaling[1] = 0.3;
-        cost_scaling[2] = 0.3;
-        cost_scaling[3] = 0.3;
-        cost_scaling[4] = 0.3;
-        cost_scaling[5] = 0.3;
-        cost_scaling[6] = 0.3;
-        cost_scaling[7] = 0.3;
-        cost_scaling[8] = 0.3;
-        cost_scaling[9] = 0.3;
-        cost_scaling[10] = 0.3;
-        cost_scaling[11] = 0.3;
-        cost_scaling[12] = 0.3;
-        cost_scaling[13] = 0.3;
-        cost_scaling[14] = 0.3;
-        cost_scaling[15] = 0.3;
-        cost_scaling[16] = 0.3;
-        cost_scaling[17] = 0.3;
-        cost_scaling[18] = 0.3;
-        cost_scaling[19] = 0.3;
-        cost_scaling[20] = 0.3;
-        cost_scaling[21] = 0.3;
-        cost_scaling[22] = 0.3;
-        cost_scaling[23] = 0.3;
-        cost_scaling[24] = 0.3;
-        cost_scaling[25] = 0.3;
-        cost_scaling[26] = 0.3;
-        cost_scaling[27] = 0.3;
-        cost_scaling[28] = 0.3;
-        cost_scaling[29] = 0.3;
+        cost_scaling[0] = 0.01;
+        cost_scaling[1] = 0.01;
+        cost_scaling[2] = 0.01;
+        cost_scaling[3] = 0.01;
+        cost_scaling[4] = 0.01;
+        cost_scaling[5] = 0.01;
+        cost_scaling[6] = 0.01;
+        cost_scaling[7] = 0.01;
+        cost_scaling[8] = 0.01;
+        cost_scaling[9] = 0.01;
+        cost_scaling[10] = 0.01;
+        cost_scaling[11] = 0.01;
+        cost_scaling[12] = 0.01;
+        cost_scaling[13] = 0.01;
+        cost_scaling[14] = 0.01;
+        cost_scaling[15] = 0.01;
+        cost_scaling[16] = 0.01;
+        cost_scaling[17] = 0.01;
+        cost_scaling[18] = 0.01;
+        cost_scaling[19] = 0.01;
+        cost_scaling[20] = 0.01;
+        cost_scaling[21] = 0.01;
+        cost_scaling[22] = 0.01;
+        cost_scaling[23] = 0.01;
+        cost_scaling[24] = 0.01;
+        cost_scaling[25] = 0.01;
+        cost_scaling[26] = 0.01;
+        cost_scaling[27] = 0.01;
+        cost_scaling[28] = 0.01;
+        cost_scaling[29] = 0.01;
         cost_scaling[30] = 1;
         for (int i = 0; i <= N; i++)
         {
@@ -470,18 +470,18 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W_0[3+(NY0) * 3] = 3;
     W_0[4+(NY0) * 4] = 3;
     W_0[5+(NY0) * 5] = 3;
-    W_0[6+(NY0) * 6] = 80;
-    W_0[7+(NY0) * 7] = 80;
-    W_0[8+(NY0) * 8] = 80;
-    W_0[9+(NY0) * 9] = 50;
-    W_0[10+(NY0) * 10] = 50;
-    W_0[11+(NY0) * 11] = 50;
-    W_0[12+(NY0) * 12] = 0.005;
-    W_0[13+(NY0) * 13] = 0.005;
-    W_0[14+(NY0) * 14] = 0.005;
-    W_0[15+(NY0) * 15] = 0.05;
-    W_0[16+(NY0) * 16] = 0.05;
-    W_0[17+(NY0) * 17] = 0.05;
+    W_0[6+(NY0) * 6] = 30;
+    W_0[7+(NY0) * 7] = 30;
+    W_0[8+(NY0) * 8] = 30;
+    W_0[9+(NY0) * 9] = 5;
+    W_0[10+(NY0) * 10] = 5;
+    W_0[11+(NY0) * 11] = 5;
+    W_0[12+(NY0) * 12] = 0.3;
+    W_0[13+(NY0) * 13] = 0.3;
+    W_0[14+(NY0) * 14] = 0.3;
+    W_0[15+(NY0) * 15] = 3;
+    W_0[16+(NY0) * 16] = 3;
+    W_0[17+(NY0) * 17] = 3;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* Vx_0 = calloc(NY0*NX, sizeof(double));
@@ -526,18 +526,18 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W[3+(NY) * 3] = 3;
     W[4+(NY) * 4] = 3;
     W[5+(NY) * 5] = 3;
-    W[6+(NY) * 6] = 80;
-    W[7+(NY) * 7] = 80;
-    W[8+(NY) * 8] = 80;
-    W[9+(NY) * 9] = 50;
-    W[10+(NY) * 10] = 50;
-    W[11+(NY) * 11] = 50;
-    W[12+(NY) * 12] = 0.005;
-    W[13+(NY) * 13] = 0.005;
-    W[14+(NY) * 14] = 0.005;
-    W[15+(NY) * 15] = 0.05;
-    W[16+(NY) * 16] = 0.05;
-    W[17+(NY) * 17] = 0.05;
+    W[6+(NY) * 6] = 30;
+    W[7+(NY) * 7] = 30;
+    W[8+(NY) * 8] = 30;
+    W[9+(NY) * 9] = 5;
+    W[10+(NY) * 10] = 5;
+    W[11+(NY) * 11] = 5;
+    W[12+(NY) * 12] = 0.3;
+    W[13+(NY) * 13] = 0.3;
+    W[14+(NY) * 14] = 0.3;
+    W[15+(NY) * 15] = 3;
+    W[16+(NY) * 16] = 3;
+    W[17+(NY) * 17] = 3;
 
     for (int i = 1; i < N; i++)
     {
@@ -592,12 +592,12 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W_e[3+(NYN) * 3] = 3;
     W_e[4+(NYN) * 4] = 3;
     W_e[5+(NYN) * 5] = 3;
-    W_e[6+(NYN) * 6] = 80;
-    W_e[7+(NYN) * 7] = 80;
-    W_e[8+(NYN) * 8] = 80;
-    W_e[9+(NYN) * 9] = 50;
-    W_e[10+(NYN) * 10] = 50;
-    W_e[11+(NYN) * 11] = 50;
+    W_e[6+(NYN) * 6] = 30;
+    W_e[7+(NYN) * 7] = 30;
+    W_e[8+(NYN) * 8] = 30;
+    W_e[9+(NYN) * 9] = 5;
+    W_e[10+(NYN) * 10] = 5;
+    W_e[11+(NYN) * 11] = 5;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, N, "W", W_e);
     free(W_e);
     double* Vx_e = calloc(NYN*NX, sizeof(double));
@@ -686,17 +686,17 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     double* lubu = calloc(2*NBU, sizeof(double));
     double* lbu = lubu;
     double* ubu = lubu + NBU;
-    lbu[0] = -20;
-    ubu[0] = 20;
-    lbu[1] = -20;
-    ubu[1] = 20;
-    ubu[2] = 240;
-    lbu[3] = -0.05;
-    ubu[3] = 0.05;
-    lbu[4] = -0.05;
-    ubu[4] = 0.05;
-    lbu[5] = -0.05;
-    ubu[5] = 0.05;
+    lbu[0] = -10;
+    ubu[0] = 10;
+    lbu[1] = -10;
+    ubu[1] = 10;
+    ubu[2] = 120;
+    lbu[3] = -1;
+    ubu[3] = 1;
+    lbu[4] = -1;
+    ubu[4] = 1;
+    lbu[5] = -1;
+    ubu[5] = 1;
 
     for (int i = 0; i < N; i++)
     {

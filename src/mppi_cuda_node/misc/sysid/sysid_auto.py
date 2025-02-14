@@ -133,19 +133,20 @@ def get_active_period(bagfile_path):
     t_begin = None
     t_end = None
     last_rel_time = 0.0
-    for topic, msg, t in bag.read_messages(topics=["/mppi/activate", "mavros/state"]):
+    for topic, msg, t in bag.read_messages(topics=["/mppi/activate", "/mavros/state", "/odometry"]):
         t_sec = t.to_sec()
-        if bag_start is None:
+        if topic == "/odometry" and bag_start is None:
             bag_start = t_sec
         rel_t = t_sec - bag_start
         last_rel_time = rel_t
+
         if topic == "/mppi/activate":
             # Assuming msg.data is a boolean.
             if t_begin is None and msg.data == True:
                 t_begin = rel_t
             elif t_begin is not None and msg.data == False and t_end is None:
                 t_end = rel_t
-        elif topic == "mavros/state":
+        elif topic == "/mavros/state":
             # Assuming msg.mode is a string.
             if t_begin is not None and msg.mode == "AUTO.LAND" and t_end is None:
                 t_end = rel_t
@@ -154,9 +155,11 @@ def get_active_period(bagfile_path):
             break
     bag.close()
     if t_begin is None:
+        print("beg")
         return None, None
     if t_end is None:
-        t_end = last_rel_time
+        print("end")
+        return None, None
     return t_begin, t_end
 
 # -------------------------------
@@ -338,7 +341,125 @@ def estimate_inertias(t, states, controls_raw, I_guess):
     Returns:
       Estimated inertias as an array.
     """
-    result = least_squares(lambda params: residual_inertias(params, states, controls_raw, t), I_guess)
+    lower_bounds = [1e-2, 1e-2, 1e-2]  # or some minimum values you deem appropriate
+    upper_bounds = [np.inf, np.inf, np.inf]
+    result = least_squares(lambda params: residual_inertias(params, states, controls_raw, t), I_guess,
+                          bounds=(lower_bounds, upper_bounds))
+    return result.x
+
+def estimate_inertias_integral(t, states, controls_raw, I_guess, window_size=10.0):
+    """
+    Estimate the inertias Ixx, Iyy, Izz by integrating the rotational dynamics
+    over fixed time windows. This avoids the noise introduced by numerical differentiation.
+    
+    The angular dynamics for roll, pitch, and yaw are:
+      Roll:  p_dot = (1/Ixx)[tau_x + (Iyy - Izz)*q*r]
+      Pitch: q_dot = (1/Iyy)[tau_y + (Izz - Ixx)*p*r]
+      Yaw:   r_dot = (1/Izz)[tau_z + (Ixx - Iyy)*p*q]
+    
+    Integrating over a window [t0, t1] gives:
+      ∫tau_x dt = Ixx * (p(t1)-p(t0)) - (Iyy - Izz) * ∫(q*r) dt
+      ∫tau_y dt = Iyy * (q(t1)-q(t0)) - (Izz - Ixx) * ∫(p*r) dt
+      ∫tau_z dt = Izz * (r(t1)-r(t0)) - (Ixx - Iyy) * ∫(p*q) dt
+    
+    We form these equations for several segments and solve for the inertias.
+    
+    Parameters:
+      t           : 1D numpy array of time stamps.
+      states      : 2D numpy array with at least 12 columns, where:
+                    - p (roll rate) is column 9,
+                    - q (pitch rate) is column 10,
+                    - r (yaw rate) is column 11.
+      controls_raw: 2D numpy array with 6 columns, where:
+                    - tau_x is column 3,
+                    - tau_y is column 4,
+                    - tau_z is column 5.
+      window_size : Duration (in seconds) of each integration window.
+    
+    Returns:
+      Estimated inertias as a numpy array: [Ixx, Iyy, Izz].
+      Returns None if not enough segments can be formed.
+    """
+    # Extract angular rates and torques.
+    p   = states[:, 9]
+    q   = states[:, 10]
+    r   = states[:, 11]
+    tau_x = controls_raw[:, 3]
+    tau_y = controls_raw[:, 4]
+    tau_z = controls_raw[:, 5]
+    
+    segments = []
+    start_idx = 0
+    n = len(t)
+    
+    # Create non-overlapping segments of length 'window_size'
+    while start_idx < n:
+        t0 = t[start_idx]
+        end_time = t0 + window_size
+        end_idx = start_idx
+        while end_idx < n and t[end_idx] <= end_time:
+            end_idx += 1
+        
+        # Skip segments with too few data points.
+        if end_idx - start_idx < 2:
+            break
+        
+        seg_t = t[start_idx:end_idx]
+        seg_p = p[start_idx:end_idx]
+        seg_q = q[start_idx:end_idx]
+        seg_r = r[start_idx:end_idx]
+        seg_tau_x = tau_x[start_idx:end_idx]
+        seg_tau_y = tau_y[start_idx:end_idx]
+        seg_tau_z = tau_z[start_idx:end_idx]
+        
+        # Compute differences and integrals over the segment.
+        Delta_p = seg_p[-1] - seg_p[0]
+        Delta_q = seg_q[-1] - seg_q[0]
+        Delta_r = seg_r[-1] - seg_r[0]
+        
+        # Use trapezoidal integration.
+        Q_qr = np.trapz(seg_q * seg_r, seg_t)
+        Q_pr = np.trapz(seg_p * seg_r, seg_t)
+        Q_pq = np.trapz(seg_p * seg_q, seg_t)
+        
+        T_x = np.trapz(seg_tau_x, seg_t)
+        T_y = np.trapz(seg_tau_y, seg_t)
+        T_z = np.trapz(seg_tau_z, seg_t)
+        
+        # Append a tuple for this segment.
+        segments.append((Delta_p, Q_qr, T_x,
+                         Delta_q, Q_pr, T_y,
+                         Delta_r, Q_pq, T_z))
+        
+        start_idx = end_idx  # move to next segment
+    
+    if len(segments) < 1:
+        print("Not enough segments for integral estimation")
+        return None
+    
+    # Define the residual function for all segments.
+    def residuals(params):
+        Ixx, Iyy, Izz = params
+        res = []
+        for seg in segments:
+            Delta_p, Q_qr, T_x, Delta_q, Q_pr, T_y, Delta_r, Q_pq, T_z = seg
+            # Roll residual:
+            res_roll = T_x - (Ixx * Delta_p - (Iyy - Izz) * Q_qr)
+            # Pitch residual:
+            res_pitch = T_y - (Iyy * Delta_q - (Izz - Ixx) * Q_pr)
+            # Yaw residual:
+            res_yaw = T_z - (Izz * Delta_r - (Ixx - Iyy) * Q_pq)
+            res.extend([res_roll, res_pitch, res_yaw])
+        return np.array(res)
+    
+    # Use a least-squares optimizer with positive bounds.
+    lower_bounds = [1e-3, 1e-3, 1e-3]
+    upper_bounds = [np.inf, np.inf, np.inf]
+    result = least_squares(residuals, I_guess, bounds=(lower_bounds, upper_bounds))
+    
+    if not result.success:
+        print("Integral-based inertia estimation did not converge.")
+        return None
     return result.x
 
 def estimate_normalization_factors(t, states, controls_norm, controls_raw, m_est, I_est, g=9.81):
@@ -428,64 +549,82 @@ def main():
         print("No bagfiles found in folder:", bagfolder)
         return
 
-    all_t = []
-    all_states = []
-    all_controls_norm = []  # these are normalized controls as recorded
+    data_file = os.path.join(bagfolder, "processed_data.npy")
+    
+    if os.path.exists(data_file):
+        print("Processed data file found. Loading data from", data_file)
+        # The file was saved as a dictionary, so we use allow_pickle=True and then .item()
+        data = np.load(data_file, allow_pickle=True).item()
+        t_all = data["t_all"]
+        states_all = data["states_all"]
+        controls_all_norm = data["controls_all_norm"]
+    else:
+        print("No processed data file found. Processing bagfiles...")
+        all_t = []
+        all_states = []
+        all_controls_norm = []  # these are normalized controls as recorded
 
-    global_time_offset = 0.0
+        global_time_offset = 0.0
 
-    for bag_path in bag_files:
-        print("Processing bagfile:", bag_path)
-        active_period = get_active_period(bag_path)
-        if active_period[0] is None:
-            print("  No active period found in bagfile; skipping.")
-            continue
-        t_begin, t_end = active_period
-        print("  Active period: t_begin = {:.2f} s, t_end = {:.2f} s".format(t_begin, t_end))
-        
-        t_state, states, t_control, controls = load_data_from_bagfile(bag_path, args.state_topic, args.control_topic, t_begin, t_end)
-        if len(t_state) < 2 or len(t_control) < 2:
-            print("  Not enough data in active period for bagfile:", bag_path)
-            continue
-        
-        # Interpolate normalized controls onto state timestamps.
-        Fx_interp = interp1d(t_control, controls[:,0], kind='linear', fill_value="extrapolate")
-        Fy_interp = interp1d(t_control, controls[:,1], kind='linear', fill_value="extrapolate")
-        Fz_interp = interp1d(t_control, controls[:,2], kind='linear', fill_value="extrapolate")
-        tau_x_interp = interp1d(t_control, controls[:,3], kind='linear', fill_value="extrapolate")
-        tau_y_interp = interp1d(t_control, controls[:,4], kind='linear', fill_value="extrapolate")
-        tau_z_interp = interp1d(t_control, controls[:,5], kind='linear', fill_value="extrapolate")
-        controls_interp_norm = np.column_stack((Fx_interp(t_state),
-                                                 Fy_interp(t_state),
-                                                 Fz_interp(t_state),
-                                                 tau_x_interp(t_state),
-                                                 tau_y_interp(t_state),
-                                                 tau_z_interp(t_state)))
-        # Adjust time to be continuous across bagfiles.
-        t_state_adjusted = t_state + global_time_offset
-        if len(t_state_adjusted) > 0:
-            global_time_offset = t_state_adjusted[-1] + 0.1  # add a small gap
-        
-        all_t.append(t_state_adjusted)
-        all_states.append(states)
-        all_controls_norm.append(controls_interp_norm)
+        for bag_path in bag_files:
+            print("Processing bagfile:", bag_path)
+            active_period = get_active_period(bag_path)
+            if active_period[0] is None:
+                print("  No active period found in bagfile; skipping.")
+                continue
+            t_begin, t_end = active_period
+            print("  Active period: t_begin = {:.2f} s, t_end = {:.2f} s".format(t_begin, t_end))
+            
+            t_state, states, t_control, controls = load_data_from_bagfile(
+                bag_path, args.state_topic, args.control_topic, t_begin, t_end)
+            if len(t_state) < 2 or len(t_control) < 2:
+                print("  Not enough data in active period for bagfile:", bag_path)
+                continue
+            
+            # Interpolate normalized controls onto state timestamps.
+            Fx_interp = interp1d(t_control, controls[:,0], kind='linear', fill_value="extrapolate")
+            Fy_interp = interp1d(t_control, controls[:,1], kind='linear', fill_value="extrapolate")
+            Fz_interp = interp1d(t_control, controls[:,2], kind='linear', fill_value="extrapolate")
+            tau_x_interp = interp1d(t_control, controls[:,3], kind='linear', fill_value="extrapolate")
+            tau_y_interp = interp1d(t_control, controls[:,4], kind='linear', fill_value="extrapolate")
+            tau_z_interp = interp1d(t_control, controls[:,5], kind='linear', fill_value="extrapolate")
+            controls_interp_norm = np.column_stack((Fx_interp(t_state),
+                                                     Fy_interp(t_state),
+                                                     Fz_interp(t_state),
+                                                     tau_x_interp(t_state),
+                                                     tau_y_interp(t_state),
+                                                     tau_z_interp(t_state)))
+            # Adjust time to be continuous across bagfiles.
+            t_state_adjusted = t_state + global_time_offset
+            if len(t_state_adjusted) > 0:
+                global_time_offset = t_state_adjusted[-1] + 0.1  # add a small gap
+            
+            all_t.append(t_state_adjusted)
+            all_states.append(states)
+            all_controls_norm.append(controls_interp_norm)
 
-    if not all_t:
-        print("No valid data loaded. Exiting.")
-        return
+        if not all_t:
+            print("No valid data loaded. Exiting.")
+            return
 
-    # Concatenate and sort data by time.
-    t_all = np.concatenate(all_t)
-    states_all = np.concatenate(all_states)
-    controls_all_norm = np.concatenate(all_controls_norm)
-    sort_idx = np.argsort(t_all)
-    t_all = t_all[sort_idx]
-    states_all = states_all[sort_idx]
-    controls_all_norm = controls_all_norm[sort_idx]
+        # Concatenate and sort data by time.
+        t_all = np.concatenate(all_t)
+        states_all = np.concatenate(all_states)
+        controls_all_norm = np.concatenate(all_controls_norm)
+        sort_idx = np.argsort(t_all)
+        t_all = t_all[sort_idx]
+        states_all = states_all[sort_idx]
+        controls_all_norm = controls_all_norm[sort_idx]
+
+        # Save the processed data for future use.
+        data = {"t_all": t_all, "states_all": states_all, "controls_all_norm": controls_all_norm}
+        np.save(data_file, data)
+        print("Processed data saved to", data_file)
 
     # Create an instance of your MPC to access nominal parameters.
     params = {
         'inertia': [0.115125971, 0.116524229, 0.230387752],
+        'horizon': 30,
         'mass': 7.00,  # nominal mass used for normalization
         'gravity': 9.81,
         'max_force': 20.0,
@@ -495,6 +634,7 @@ def main():
         'tracking_weight_vel': 3,
         'tracking_weight_att': 80,
         'tracking_weight_ang_vel': 50,
+        'terminal_weight': 1,
         'smoothness_weight': 0.01,
         'dt': 0.3
     }
@@ -512,7 +652,8 @@ def main():
 
     # Estimate inertias using angular dynamics.
     I_guess = np.array(params["inertia"])  # initial guess from nominal parameters
-    I_est = estimate_inertias(t_all, states_all, controls_all_raw, I_guess)
+    # I_est = estimate_inertias(t_all, states_all, controls_all_raw, I_guess)
+    I_est = estimate_inertias_integral(t_all, states_all, controls_all_raw, I_guess, 60)
     print("Estimated inertias: I_xx={:.5f}, I_yy={:.5f}, I_zz={:.5f}".format(*I_est))
 
     # Estimate normalization factors.

@@ -18,6 +18,7 @@ from core_trajectory_msgs.msg import FixedTrajectory
 from diagnostic_msgs.msg import KeyValue
 from tf.transformations import euler_from_quaternion
 import casadi as cs
+import torch
 
 
 # --- MPC imports ---
@@ -27,6 +28,7 @@ from mppi_cuda_node.controllers.lqr.lqr_controller import LqrController
 from mppi_cuda_node.misc.mavlink.mavlink_transmitter import MavlinkTransmitter
 from mppi_cuda_node.controllers.l1.l1_adaptive import L1AdaptiveController
 from scipy.spatial.transform import Rotation
+from mppi_cuda_node.misc.sim_noise_model.train_noise_model import NoiseNet
 
 from dynamic_reconfigure.server import Server
 # from mppi_cuda_node.cfg.MPCParamsConfig import MPCParamsConfig
@@ -43,6 +45,8 @@ class MPCControllerNode(object):
         self.prev_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.u_mpc = np.zeros(6)
         self.prev_u_mpc = np.zeros(6)
+        self.u_total = np.zeros(6)
+        self.prev_u_total = np.zeros(6)
         self.mpc_target = np.zeros(12)     # To be updated from the MPPI node
         self.mpc_target[2] = 0.8
         self.activate = False
@@ -59,19 +63,19 @@ class MPCControllerNode(object):
             'max_force': 10.0,
             'max_torque': 1,
             'control_weight': 0.3,
-            'tracking_weight_pos': 10,
+            'tracking_weight_pos': 100,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 30,
+            'tracking_weight_att': 100,
             'tracking_weight_ang_vel': 5,
-            'terminal_weight': 1,
+            'terminal_weight': 0.1,
             'smoothness_weight': 0.05,
             'dt': 0.01,
             # L1 adaptive controller parameters:
             # 'l1_adaptation_gain': 0.0,
             # 'l1_filter_cutoff': 0.0000001
-            'l1_adaptation_gain_pos_vertical':   0.005,
-            'l1_adaptation_gain_pos_horizontal': 0.005,
-            'l1_adaptation_gain_att':            0.01,
+            'l1_adaptation_gain_pos_vertical':   0.0,#05,
+            'l1_adaptation_gain_pos_horizontal': 0.0,#05,
+            'l1_adaptation_gain_att':            0.0,#10,
             'l1_filter_cutoff': 25
         }
         self.mpc_tube_params = {
@@ -120,6 +124,16 @@ class MPCControllerNode(object):
         self.mpc_rate_hz = 100.0  # Run MPC at 50 Hz
         self.last_time_pid_pos_publish = rospy.Time.now()
 
+        self.sim = rospy.get_param("/use_sim_time", False)
+        self.noise_model = None
+        # Initialize the noise model.
+        # self.noise_model = NoiseNet(input_dim=18, output_dim=12)
+        self.noise_model = NoiseNet(input_dim=18, hidden_dim=64, num_layers=2, output_dim=12)
+        model_path = "/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/src/mppi_cuda_node/misc/sim_noise_model/noise_model_nn.pt"  # Ensure this file is in your working directory or provide full path
+        self.noise_model.load_state_dict(torch.load(model_path, map_location='cpu'))
+        self.noise_model.to("cpu")
+        self.noise_model.eval()
+
         # Set up dynamic reconfigure server for tuning MPC parameters
         # self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
 
@@ -153,31 +167,42 @@ class MPCControllerNode(object):
     def activate_callback(self, data):
         self.activate = data.data
 
+
     def odometry_callback(self, data):
+        # Save previous state.
         self.prev_state = self.current_state.copy()
         self.odom = data
         pose = data.pose.pose
         twist = data.twist.twist
 
-        # Update state: positions and velocities
+        # Update state: positions and velocities.
         self.current_state[0:3] = [pose.position.x, pose.position.y, pose.position.z]
         self.current_state[3:6] = [twist.linear.x, twist.linear.y, twist.linear.z]
 
-        # Convert quaternion to Euler angles
+        # Convert quaternion to Euler angles.
         quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
         euler = euler_from_quaternion(quaternion)
         self.current_state[6:9] = euler
 
-        # Angular velocities
+        # Angular velocities.
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
 
-        # Publish attitude debug message
-        att_msg = Vector3Stamped()
-        att_msg.header.stamp = data.header.stamp
-        att_msg.vector.x = euler[0]
-        att_msg.vector.y = euler[1]
-        att_msg.vector.z = euler[2]
-        self.att_debug_pub.publish(att_msg)
+        # ---- Use the noise model to predict the model mismatch (noise) ----
+        # The noise network was trained with an 18D input: [state (12D); control (6D)]
+        # Ensure that self.last_control is available (e.g., from your control loop)
+        if self.sim:
+            input_vec = np.concatenate([self.current_state, self.prev_u_total], axis=0)
+            input_tensor = torch.tensor(input_vec, dtype=torch.float32).unsqueeze(0).to('cpu')
+            if self.noise_model is not None:
+                with torch.no_grad():
+                    noise_pred = self.noise_model(input_tensor)
+            # Convert prediction to a 1D NumPy array (12D)
+            noise_pred = noise_pred.cpu().numpy().flatten()
+
+            self.current_state[0:3] += noise_pred[0:3]/10
+            self.current_state[6:9] += noise_pred[3:6]/10
+
+
 
     def mpc_target_callback(self, data):
         """
@@ -302,11 +327,12 @@ class MPCControllerNode(object):
         rate = rospy.Rate(self.mpc_rate_hz)
         while not rospy.is_shutdown():
             self.prev_u_mpc = self.u_mpc
+            self.prev_u_total = self.u_total
             self.u_mpc = self.run_mpc()
             u_adapt = self.l1_adaptive.update(self.current_state.copy(), self.prev_state.copy(), self.prev_u_mpc.copy(), dt=(1/self.mpc_rate_hz))
             self.publish_umpc_uadapt_debug(self.u_mpc.copy(), u_adapt.copy())
-            u_total = self.u_mpc + u_adapt
-            u_total_norm = self.normalize_control_inputs_mpc(u_total.copy())
+            self.u_total = self.u_mpc + u_adapt
+            u_total_norm = self.normalize_control_inputs_mpc(self.u_total.copy())
             self.publish_cmd(u_total_norm)
             rate.sleep()
 
