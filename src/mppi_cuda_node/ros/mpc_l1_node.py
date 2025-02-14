@@ -62,10 +62,17 @@ class MPCControllerNode(object):
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1,
+<<<<<<< HEAD
             'control_weight': 0.3,
             'tracking_weight_pos': 100,
             'tracking_weight_vel': 3,
             'tracking_weight_att': 100,
+=======
+            'control_weight': 0.4,
+            'tracking_weight_pos': 100  ,
+            'tracking_weight_vel': 3,
+            'tracking_weight_att': 50,
+>>>>>>> 43c1e169bb4bb0cd5f86cbb3bbca2211c8bbb7fe
             'tracking_weight_ang_vel': 5,
             'terminal_weight': 0.1,
             'smoothness_weight': 0.05,
@@ -73,9 +80,15 @@ class MPCControllerNode(object):
             # L1 adaptive controller parameters:
             # 'l1_adaptation_gain': 0.0,
             # 'l1_filter_cutoff': 0.0000001
+<<<<<<< HEAD
             'l1_adaptation_gain_pos_vertical':   0.0,#05,
             'l1_adaptation_gain_pos_horizontal': 0.0,#05,
             'l1_adaptation_gain_att':            0.0,#10,
+=======
+            'l1_adaptation_gain_pos_vertical':   0.000,
+            'l1_adaptation_gain_pos_horizontal': 0.000,
+            'l1_adaptation_gain_att':            0.000,
+>>>>>>> 43c1e169bb4bb0cd5f86cbb3bbca2211c8bbb7fe
             'l1_filter_cutoff': 25
         }
         self.mpc_tube_params = {
@@ -222,7 +235,7 @@ class MPCControllerNode(object):
         Normalize/scaling for MPC outputs (body rates and thrust).
         Adjust these gains to suit your vehicle.
         """
-        hover_thrust = 0.6567
+        hover_thrust = 0.61
         ctrl[0] = ctrl[0] * 0.515336334
         ctrl[1] = ctrl[1] * 0.515336334
         ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
