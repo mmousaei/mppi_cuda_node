@@ -149,7 +149,7 @@ class MPC:
         Q = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos']*16,    # pz
+            params['tracking_weight_pos']*25,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
@@ -173,13 +173,13 @@ class MPC:
         Q_terminal = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos']*16,    # pz
+            params['tracking_weight_pos']*25,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
-            params['tracking_weight_att'],    # phi
-            params['tracking_weight_att'],    # theta
-            params['tracking_weight_att'],    # psi
+            params['tracking_weight_att']/2,    # phi
+            params['tracking_weight_att']/2,    # theta
+            params['tracking_weight_att']/2,    # psi
             params['tracking_weight_ang_vel'],# p
             params['tracking_weight_ang_vel'],# q
             params['tracking_weight_ang_vel'] # r
@@ -253,7 +253,11 @@ class MPC:
         # Typically we want to track target_state, while also wanting hover thrust, etc.
         mass = self.params["mass"]
         g    = self.params["gravity"]
-        nominal_hover = np.array([0.0, 0.0, mass*g, 0.0, 0.0, 0.0])  # typical hover guess
+        phi, theta, psi = target_state[6], target_state[7], target_state[8]
+        Fx_nom = -mass * g * np.sin(theta)
+        Fy_nom =  mass * g * np.sin(phi) * np.cos(theta)
+        Fz_nom =  mass * g * np.cos(phi) * np.cos(theta)
+        nominal_hover = np.array([Fx_nom, Fy_nom, Fz_nom, 0.0, 0.0, 0.0])
         yref = np.concatenate([target_state, nominal_hover])
 
         for i in range(self.horizon):

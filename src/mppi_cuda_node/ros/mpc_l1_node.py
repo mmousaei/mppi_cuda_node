@@ -42,6 +42,7 @@ class MPCControllerNode(object):
         rospy.loginfo("Initializing MPC Controller Node ...")
 
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
+        self.gt = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.prev_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.u_mpc = np.zeros(6)
         self.prev_u_mpc = np.zeros(6)
@@ -63,20 +64,20 @@ class MPCControllerNode(object):
             'max_force': 10.0,
             'max_torque': 1,
             'control_weight': 0.4,
-            'tracking_weight_pos': 100  ,
+            'tracking_weight_pos': 50  ,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 50,
+            'tracking_weight_att': 30,
             'tracking_weight_ang_vel': 5,
-            'terminal_weight': 0.1,
+            'terminal_weight': 1,
             'smoothness_weight': 0.05,
             'dt': 0.01,
             # L1 adaptive controller parameters:
             # 'l1_adaptation_gain': 0.0,
             # 'l1_filter_cutoff': 0.0000001
-            'l1_adaptation_gain_pos_vertical':   0.000,
-            'l1_adaptation_gain_pos_horizontal': 0.000,
-            'l1_adaptation_gain_att':            0.000,
-            'l1_filter_cutoff': 25
+            'l1_adaptation_gain_pos_vertical':   0.0,
+            'l1_adaptation_gain_pos_horizontal': 0.03,
+            'l1_adaptation_gain_att':            0.0,
+            'l1_filter_cutoff': 20
         }
         self.mpc_tube_params = {
             'inertia': self.inertia_flat,
@@ -121,21 +122,27 @@ class MPCControllerNode(object):
         rospy.Subscriber('/mpc/target', PoseStamped, self.mpc_target_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
 
-        self.mpc_rate_hz = 100.0  # Run MPC at 50 Hz
+        self.mpc_rate_hz = 1000.0  # Run MPC at 50 Hz
         self.last_time_pid_pos_publish = rospy.Time.now()
 
         self.sim = rospy.get_param("/use_sim_time", False)
-        self.noise_model = None
-        # Initialize the noise model.
-        # self.noise_model = NoiseNet(input_dim=18, output_dim=12)
-        self.noise_model = NoiseNet(input_dim=18, hidden_dim=64, num_layers=2, output_dim=12)
-        model_path = "/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/src/mppi_cuda_node/misc/sim_noise_model/noise_model_nn.pt"  # Ensure this file is in your working directory or provide full path
-        self.noise_model.load_state_dict(torch.load(model_path, map_location='cpu'))
-        self.noise_model.to("cpu")
-        self.noise_model.eval()
 
         # Set up dynamic reconfigure server for tuning MPC parameters
         # self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
+
+        if self.sim:
+            # # Initialize the learned noise model.Z
+            # self.noise_model = None
+            # # self.noise_model = NoiseNet(input_dim=18, output_dim=12)
+            # self.noise_model = NoiseNet(input_dim=18, hidden_dim=64, num_layers=2, output_dim=12)
+            # model_path = "/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/src/mppi_cuda_node/misc/sim_noise_model/noise_model_nn.pt"  # Ensure this file is in your working directory or provide full path
+            # self.noise_model.load_state_dict(torch.load(model_path, map_location='cpu'))
+            # self.noise_model.to("cpu")
+            # self.noise_model.eval()
+            # Gaussian noise model
+            noise_data = np.load("/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/src/mppi_cuda_node/misc/sim_noise_model/gaussian_noise.npz")
+            self.noise_mean = noise_data["mean"]  # This should be a 12D vector if you're adding full-state noise
+            self.noise_cov = noise_data["cov"]    # 12x12 covariance matrix
 
         rospy.loginfo("MPC Controller Node Initialization Complete.")
 
@@ -166,11 +173,12 @@ class MPCControllerNode(object):
 
     def activate_callback(self, data):
         self.activate = data.data
+        self.l1_adaptive.reset()
 
 
     def odometry_callback(self, data):
         # Save previous state.
-        self.prev_state = self.current_state.copy()
+        self.prev_state = self.gt.copy()
         self.odom = data
         pose = data.pose.pose
         twist = data.twist.twist
@@ -191,16 +199,29 @@ class MPCControllerNode(object):
         # The noise network was trained with an 18D input: [state (12D); control (6D)]
         # Ensure that self.last_control is available (e.g., from your control loop)
         if self.sim:
-            input_vec = np.concatenate([self.current_state, self.prev_u_total], axis=0)
-            input_tensor = torch.tensor(input_vec, dtype=torch.float32).unsqueeze(0).to('cpu')
-            if self.noise_model is not None:
-                with torch.no_grad():
-                    noise_pred = self.noise_model(input_tensor)
-            # Convert prediction to a 1D NumPy array (12D)
-            noise_pred = noise_pred.cpu().numpy().flatten()
+            # input_vec = np.concatenate([self.current_state, self.prev_u_total], axis=0)
+            # input_tensor = torch.tensor(input_vec, dtype=torch.float32).unsqueeze(0).to('cpu')
+            # if self.noise_model is not None:
+            #     with torch.no_grad():
+            #         noise_pred = self.noise_model(input_tensor)
+            # # Convert prediction to a 1D NumPy array (12D)
+            # noise_pred = noise_pred.cpu().numpy().flatten()
 
-            self.current_state[0:3] += noise_pred[0:3]/10
-            self.current_state[6:9] += noise_pred[3:6]/10
+            # self.current_state[0:3] += noise_pred[0:3]/10
+            # self.current_state[6:9] += noise_pred[3:6]/10
+            # Sample noise from the Gaussian model.
+            noise_sample = np.random.multivariate_normal(self.noise_mean, self.noise_cov)/2
+            noisy_state = self.current_state + noise_sample.copy()
+            self.gt = self.current_state 
+            # self.current_state = noisy_state
+
+        # Publish attitude debug message
+        att_msg = Vector3Stamped()
+        att_msg.header.stamp = data.header.stamp
+        att_msg.vector.x = euler[0]
+        att_msg.vector.y = euler[1]
+        att_msg.vector.z = euler[2]
+        self.att_debug_pub.publish(att_msg)
 
 
 
@@ -214,8 +235,10 @@ class MPCControllerNode(object):
         self.mpc_target[2] = data.pose.position.z
         # For simplicity, we zero the remaining state elements.
 
-        self.mpc_target[3:] = 0.0
-        # self.mpc_target[8] = data.pose.orientation.z
+        # self.mpc_target[3:] = 0.0
+        self.mpc_target[6] = data.pose.orientation.x
+        self.mpc_target[7] = data.pose.orientation.y
+        self.mpc_target[8] = data.pose.orientation.z
         
     def normalize_control_inputs_mpc(self, ctrl):
         """
@@ -329,7 +352,7 @@ class MPCControllerNode(object):
             self.prev_u_mpc = self.u_mpc
             self.prev_u_total = self.u_total
             self.u_mpc = self.run_mpc()
-            u_adapt = self.l1_adaptive.update(self.current_state.copy(), self.prev_state.copy(), self.prev_u_mpc.copy(), dt=(1/self.mpc_rate_hz))
+            u_adapt = self.l1_adaptive.update(self.gt.copy(), self.prev_u_mpc.copy(), dt=(1/self.mpc_rate_hz))
             self.publish_umpc_uadapt_debug(self.u_mpc.copy(), u_adapt.copy())
             self.u_total = self.u_mpc + u_adapt
             u_total_norm = self.normalize_control_inputs_mpc(self.u_total.copy())

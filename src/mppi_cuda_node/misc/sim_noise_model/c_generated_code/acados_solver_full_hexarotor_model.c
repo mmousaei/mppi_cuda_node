@@ -466,7 +466,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_0[0+(NY0) * 0] = 10;
     W_0[1+(NY0) * 1] = 10;
-    W_0[2+(NY0) * 2] = 80;
+    W_0[2+(NY0) * 2] = 160;
     W_0[3+(NY0) * 3] = 3;
     W_0[4+(NY0) * 4] = 3;
     W_0[5+(NY0) * 5] = 3;
@@ -522,7 +522,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W[0+(NY) * 0] = 10;
     W[1+(NY) * 1] = 10;
-    W[2+(NY) * 2] = 80;
+    W[2+(NY) * 2] = 160;
     W[3+(NY) * 3] = 3;
     W[4+(NY) * 4] = 3;
     W[5+(NY) * 5] = 3;
@@ -588,7 +588,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_e[0+(NYN) * 0] = 10;
     W_e[1+(NYN) * 1] = 10;
-    W_e[2+(NYN) * 2] = 80;
+    W_e[2+(NYN) * 2] = 160;
     W_e[3+(NYN) * 3] = 3;
     W_e[4+(NYN) * 4] = 3;
     W_e[5+(NYN) * 5] = 3;

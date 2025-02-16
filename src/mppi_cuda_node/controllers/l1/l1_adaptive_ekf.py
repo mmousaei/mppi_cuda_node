@@ -14,9 +14,11 @@ class L1AdaptiveController:
         self.adaptation_gain_pos_vertical = params.get("l1_adaptation_gain_pos_vertical", 10.0)
         self.adaptation_gain_pos_horizontal = params.get("l1_adaptation_gain_pos_horizontal", 10.0)
         self.adaptation_gain_att = params.get("l1_adaptation_gain_att", 10.0)
-        
-        # Low-pass filter cutoff frequency (Hz) for additional smoothing.
-        self.filter_cutoff = params.get("l1_filter_cutoff", 5.0)
+        # Use separate filter cutoff frequencies in Hz for translational and rotational channels.
+        self.filter_cutoff_trans = params.get("l1_filter_cutoff_trans", 5.0)
+        self.filter_cutoff_rot   = params.get("l1_filter_cutoff_rot", 5.0)
+        self.tau_trans = 1.0 / (2 * np.pi * self.filter_cutoff_trans)
+        self.tau_rot   = 1.0 / (2 * np.pi * self.filter_cutoff_rot)
         
         # Nominal dynamics function (CasADi Function taking (x,u) and returning f(x,u)).
         self.f_nominal = f_nominal
@@ -119,7 +121,7 @@ class L1AdaptiveController:
         d_hat = z_upd[n:]
         return d_hat
 
-    def update(self, state, prev, u_mpc, dt):
+    def update(self, state, u_mpc, dt):
         """
         Update the adaptive control signal using the EKF estimate of the disturbance.
         Inputs:
@@ -149,9 +151,12 @@ class L1AdaptiveController:
             u_dist_est_filtered = u_dist_est
 
         # Apply a first-order low-pass filter to smooth the adaptive control signal.
-        tau = 1.0 / (2 * np.pi * self.filter_cutoff)
-        alpha = dt / (dt + tau)
-        self.adapted_control = (1 - alpha) * self.adapted_control + alpha * u_dist_est_filtered
+        # Translational channels (indices 0,1,2):
+        alpha_trans = dt / (dt + self.tau_trans)
+        self.adapted_control[0:3] = ((1 - alpha_trans) * self.adapted_control[0:3] + alpha_trans * u_dist_est_filtered[0:3])
+        # Rotational channels (indices 3,4,5):
+        alpha_rot = dt / (dt + self.tau_rot)
+        self.adapted_control[3:6] = ((1 - alpha_rot) * self.adapted_control[3:6] + alpha_rot * u_dist_est_filtered[3:6])
 
         # Apply separate adaptation gains:
         # For translation: indices 0-1 are horizontal, index 2 is vertical.
@@ -162,3 +167,23 @@ class L1AdaptiveController:
         u_adapt[3:6] = self.adaptation_gain_att * self.adapted_control[3:6]
 
         return u_adapt
+
+    def reset(self, state=None):
+        """
+        Reset the internal state of the adaptive controller.
+        This resets:
+          - The EKF augmented state (z = [x; d]): if a measured state (12D) is provided, x is set to that and d to zero;
+            otherwise, the entire state is reset to zero.
+          - The covariance matrix P is reinitialized.
+          - The disturbance buffer is cleared.
+          - The filtered adaptive control signal is reset.
+        Args:
+            state (np.array, optional): Measured current state (12D) to initialize the observer.
+        """
+        self.adapted_control = np.zeros(6)
+        self.disturbance_buffer = []
+        if state is not None:
+            self.ekf_state = np.concatenate([state, np.zeros(self.n)])
+        else:
+            self.ekf_state = np.zeros(self.z_dim)
+        self.P = np.eye(self.z_dim) * 1e-3

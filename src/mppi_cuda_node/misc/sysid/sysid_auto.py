@@ -653,7 +653,7 @@ def main():
     # Estimate inertias using angular dynamics.
     I_guess = np.array(params["inertia"])  # initial guess from nominal parameters
     # I_est = estimate_inertias(t_all, states_all, controls_all_raw, I_guess)
-    I_est = estimate_inertias_integral(t_all, states_all, controls_all_raw, I_guess, 60)
+    I_est = estimate_inertias_integral(t_all, states_all, controls_all_raw, I_guess, 10)
     print("Estimated inertias: I_xx={:.5f}, I_yy={:.5f}, I_zz={:.5f}".format(*I_est))
 
     # Estimate normalization factors.
