@@ -95,12 +95,12 @@ class L1AdaptiveController:
         
         # Define channel-specific adaptation gains as a diagonal (vector) multiplier.
         gains = np.array([
-            self.gain_pos_horizontal,  # first horizontal force channel
-            self.gain_pos_horizontal,  # second horizontal force channel
-            self.gain_pos_vertical,    # vertical force channel
-            self.gain_att,             # attitude channel 1
-            self.gain_att,             # attitude channel 2
-            self.gain_att              # attitude channel 3
+            1,  # first horizontal force channel
+            1,  # second horizontal force channel
+            1,    # vertical force channel
+            1,             # attitude channel 1
+            1,             # attitude channel 2
+            1              # attitude channel 3
         ])
         # Update the estimated uncertainty.
         self.adaptation_estimate += dt * gains * delta

@@ -8,6 +8,18 @@ from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_normal_
 import matplotlib.pyplot as plt
 
 
+import os
+import sys
+
+# Get the absolute path of the directory containing mpc
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, "..", "mpc"))
+sys.path.append(parent_dir)
+
+# Now import your module using absolute import
+from acados.acados_mpc import MPC
+
+
 # Information about your GPU
 gpu = cuda.get_current_device()
 max_threads_per_block = gpu.MAX_THREADS_PER_BLOCK
@@ -812,7 +824,8 @@ class MPPI_Numba(object):
       for t in range(num_timesteps):
         for i in range(num_controls):
             # Linearly scaled standard deviation
-            scale = 1.0 - ((t / num_timesteps * (denom - 1)) / denom)
+            # scale = 1.0 - ((t / num_timesteps * (denom - 1)) / denom)
+            scale = 1.0
             scaled_std = u_std_d[i] * scale
 
             # Generate noise with scaled variance
@@ -865,17 +878,19 @@ if __name__ == "__main__":
     num_states = 12
     cfg = Config(
             T=2,                # Horizon length in seconds
-            dt=0.2,        # Time step
+            dt=0.3,        # Time step
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
             seed=1
         )
-    x0 = np.zeros(12)
+    x0 = np.array([0,0, 0, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
-    xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     
     mppi_params = {
             'dt': cfg.dt,
@@ -884,33 +899,115 @@ if __name__ == "__main__":
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 6,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005]),
+            'num_opt': 8,
+            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                5500, 5500, 3400,
-                5, 5, 10,
-                800, 800, 800,
-                100, 100, 100,
-                1, 100, 1, 100, 2000
+                9550, 9550, 24840,
+                10, 10, 10,
+                25500, 25500, 25500,
+                1, 1, 1,
+                1, 100, 1, 100, 9000
             ]),
-            "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
+            "inertia_mass": np.array([0.21, 0.21, 0.4, 6.15])
         }
 
     mppi_controller = MPPI_Numba(cfg)
     mppi_controller.set_params(mppi_params)
 
+    use_mpc = False
+    max_steps = 500
+
+    mpc_params = {
+            'inertia': np.array([0.115125971, 0.116524229, 0.230387752]),
+            'mass': 7.00,
+            'horizon': 30,
+            'gravity': 9.81,
+            'max_force': 10.0,
+            'max_torque': 1,
+            'control_weight': 0.4,
+            'tracking_weight_pos': 50,
+            'tracking_weight_vel': 3,
+            'tracking_weight_att': 30,
+            'tracking_weight_ang_vel': 5,
+            'terminal_weight': 1,
+            'smoothness_weight': 0.05,
+            'dt': 0.01
+        }
+    
+    mpc = MPC(mpc_params)
+
+    def hex_dynamics(x, u, mppi_params):
+        p, v, Psi, omega = np.split(x, 4)
+        f_T, m_T = u[:3], u[3:]
+        phi, theta, psi = Psi
+        J = np.diag(mppi_params['inertia_mass'][:3])
+        R = np.array([
+            [np.cos(theta)*np.cos(psi), np.cos(theta)*np.sin(psi), -np.sin(theta)],
+            [np.sin(phi)*np.sin(theta)*np.cos(psi) - np.cos(phi)*np.sin(psi), np.sin(phi)*np.sin(theta)*np.sin(psi) + np.cos(phi)*np.cos(psi), np.sin(phi)*np.cos(theta)],
+            [np.cos(phi)*np.sin(theta)*np.cos(psi) + np.sin(phi)*np.sin(psi), np.cos(phi)*np.sin(theta)*np.sin(psi) - np.sin(phi)*np.cos(psi), np.cos(phi)*np.cos(theta)]
+        ])
+        gravity_world = np.array([0, 0, -9.81])
+        gravity_body = np.dot(R.T, gravity_world)  # Rotate gravity to body frame
+
+        nu = np.array([
+            [1, np.sin(phi) * np.tan(theta), np.cos(phi) * np.tan(theta)],
+            [0, np.cos(phi), -np.sin(phi)],
+            [0, np.sin(phi) / np.cos(theta), np.cos(phi) / np.cos(theta)]
+        ])
+
+        p_dot = v
+        v_dot = (1/mppi_params['inertia_mass'][3]) * f_T + gravity_body
+        psi_dot = np.dot(nu, omega)
+        omega_dot = np.dot(np.linalg.inv(J), m_T - np.cross(omega, np.dot(J, omega)))
+
+        return np.concatenate([p_dot, v_dot, psi_dot, omega_dot])
+    def forward_simulate_for_mpc_target(optimal_control_seq, current_state, mppi_params):
+        """
+        Forward simulate using the first MPPI control (for one time step)
+        to obtain a target state that MPC can track.
+        """
+        mppi_u = optimal_control_seq[0, :].copy()
+
+        # (Optional) Gravity compensation could be applied here if desired.
+        # Forward-simulate using a simple RK4 integration:
+        next_state = dynamics_update_rk4(current_state.copy(), mppi_u, mppi_params['dt'], mppi_params)
+        # Zero-out the angular velocity components for the target
+        # next_state[6:] = np.zeros(6)
+
+        # next_state_filtered = self.lpf.filter(next_state.copy())
+        # next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.1, 0.1)
+        return next_state
+
+    def dynamics_update_rk4(state, control_inputs, dt, mppi_params):
+        """
+        A simple RK4 integration for the hexarotor dynamics.
+        """
+        # k1 = dynamics_update_sim(state, control_inputs, dt)
+        # k2 = dynamics_update_sim(state + k1 / 2, control_inputs, dt) 
+        # k3 = dynamics_update_sim(state + k2 / 2, control_inputs, dt)
+        # k4 = dynamics_update_sim(state + k3, control_inputs, dt)
+        
+        k1 = hex_dynamics(state, control_inputs, mppi_params) * dt
+        k2 = hex_dynamics(state + k1 / 2, control_inputs, mppi_params) * dt 
+        k3 = hex_dynamics(state + k2 / 2, control_inputs, mppi_params) * dt
+        k4 = hex_dynamics(state + k3, control_inputs, mppi_params) * dt
+        next_state = state + (k1 + 2*k2 + 2*k3 + k4) / 6
+        return next_state
     # Loop
-    max_steps = 2000
+    
     xhist = np.zeros((max_steps+1, num_states))*np.nan
     uhist = np.zeros((max_steps, num_controls))*np.nan
+    mpctargethist = np.zeros((max_steps+1, num_states))*np.nan
     xhist[0] = x0
+    mpctargethist[0] = x0
 
     vis_xlim = [-1, 8]
     vis_ylim = [-1, 6]
-
+    mpc_target  = np.zeros(12)
     plot_every_n = 15
+    
     for t in range(max_steps):
         # Solve
         useq = mppi_controller.solve()
@@ -923,11 +1020,23 @@ if __name__ == "__main__":
             [-np.sin(theta),            np.sin(phi)*np.cos(theta),                                       np.cos(phi)*np.cos(theta)]
         ])
         gravity_body = np.dot(R.T, gravity_vector_world)  # Rotate gravity to body frame
+        if t % 10 == 0:
+          mpc_target = forward_simulate_for_mpc_target(useq, xhist[t, :], mppi_params)
+        u_mpc = mpc.compute_control(xhist[t, :], mpc_target, np.zeros(6), mpc_params['dt'])
+        mpctargethist[t+1, :] = mpc_target.copy()
         # u_curr[:3] += gravity_body
-        uhist[t] = u_curr
+        if use_mpc:
+          uhist[t] = u_mpc
+        else:
+          uhist[t] = u_curr.copy()
 
         # Simulate state forward 
-        xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_curr, cfg.dt/10)
+        if use_mpc:
+          # xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_mpc, mpc_params['dt'])
+          xhist[t+1, :] = dynamics_update_rk4(xhist[t, :], u_mpc, mpc_params['dt'], mppi_params)
+        else:
+          # xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_curr, cfg.dt)
+          xhist[t+1, :] = dynamics_update_rk4(xhist[t, :], u_curr, cfg.dt, mppi_params)
         # print("x: ", xhist[t+1, :])
         print(t)
         # Update MPPI state (x0, useq)
@@ -937,7 +1046,7 @@ if __name__ == "__main__":
     x_goal, y_goal, z_goal = xgoal[:3]
     roll_goal, pitch_goal, yaw_goal = xgoal[6:9]
 
-    fig, axs = plt.subplots(4, 3, figsize=(12, 9))  # Create 3 subplots, one for each series
+    fig, axs = plt.subplots(6, 3, figsize=(12, 9))  # Create 3 subplots, one for each series
 
     # Plot X with Goal
     axs[0][0].plot(xhist[:, 0], label='x')
@@ -1028,6 +1137,44 @@ if __name__ == "__main__":
     axs[3][2].set_xlabel('Time Steps')
     axs[3][2].set_ylabel('Nm')
     axs[3][2].legend()
+
+    # mpc target x
+    axs[4][0].plot(mpctargethist[:, 0], label='X')
+    axs[4][0].set_title('X')
+    axs[4][0].set_xlabel('Time Steps')
+    axs[4][0].set_ylabel('m')
+    axs[4][0].legend()
+    # mpc target y
+    axs[4][1].plot(mpctargethist[:, 1], label='Y')
+    axs[4][1].set_title('Y')
+    axs[4][1].set_xlabel('Time Steps')
+    axs[4][1].set_ylabel('m')
+    axs[4][1].legend()
+    # mpc target z
+    axs[4][2].plot(mpctargethist[:, 2], label='Z')
+    axs[4][2].set_title('Z')
+    axs[4][2].set_xlabel('Time Steps')
+    axs[4][2].set_ylabel('m')
+    axs[4][2].legend()
+
+    # mpc target r
+    axs[5][0].plot(mpctargethist[:, 6]*180/np.pi, label='roll')
+    axs[5][0].set_title('r')
+    axs[5][0].set_xlabel('Time Steps')
+    axs[5][0].set_ylabel('degrees')
+    axs[5][0].legend()
+    # mpc target p
+    axs[5][1].plot(mpctargethist[:, 7]*180/np.pi, label='pitch')
+    axs[5][1].set_title('p')
+    axs[5][1].set_xlabel('Time Steps')
+    axs[5][1].set_ylabel('degrees')
+    axs[5][1].legend()
+    # mpc target y
+    axs[5][2].plot(mpctargethist[:, 8]*180/np.pi, label='yaw')
+    axs[5][2].set_title('y')
+    axs[5][2].set_xlabel('Time Steps')
+    axs[5][2].set_ylabel('degrees')
+    axs[5][2].legend()
 
 
 

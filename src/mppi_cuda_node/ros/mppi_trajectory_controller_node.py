@@ -51,13 +51,14 @@ class MPPIControllerNode(object):
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.mpc_target = np.zeros(12)     # Target state for MPC (to be computed)
         self.activate = False
+        self.mpc_horizon = 0.3
 
         self.initialize_hexarotor_parameters()
 
         # ----- MPPI Setup -----
         self.cfg = Config(
-            T=1,            # Horizon length in seconds
-            dt=0.1,         # Time step (seconds)
+            T=2.0,            # Horizon length in seconds
+            dt=0.3,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -65,7 +66,7 @@ class MPPIControllerNode(object):
             seed=1
         )
         self.mppi_controller = MPPI_Numba(self.cfg)
-
+        self.use_local_state = False
         self.mppi_params = {
             'dt': self.cfg.dt,
             'x0': self.current_state,
@@ -73,22 +74,24 @@ class MPPIControllerNode(object):
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 10,
-            'num_opt': 6,
-            'u_std': np.array([1.5, 1.5, 1.5, 0.05, 0.05, 0.05]),
+            'lambda_weight': 40,
+            'num_opt': 8,
+            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                15500, 15500, 18400,
-                1, 1, 10,
-                800, 800, 800,
+                9550, 9550, 24840,
                 10, 10, 10,
+                25500, 25500, 25500,
+                1, 1, 1,
                 1, 100, 1, 100, 9000
             ]),
-            "inertia_mass": np.array([0.115125971, 0.116524229, 0.230387752, 7.00])
+            "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
+
+        self.mppi_state = None
 
         # Prepare an initial control sequence
         self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
@@ -100,7 +103,7 @@ class MPPIControllerNode(object):
         cutoff_freq = 10
         sampling_rate = 1 / 0.02  # Based on a 50 Hz update rate
         b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
-        self.lpf = OnlineLPF(b, a, self.cfg.num_controls)
+        self.lpf = OnlineLPF(b, a, self.cfg.num_states)
 
         # ----- Subscribers and Publishers -----
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
@@ -112,15 +115,20 @@ class MPPIControllerNode(object):
         self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
         self.target_pub_debug = rospy.Publisher('/mppi_debug/target_mpc_debug', PoseStamped, queue_size=10)
 
-        self.mppi_rate_hz = 10.0  # Run MPPI at 5 Hz
+        self.mppi_rate_hz = 1/self.cfg.dt  # Run MPPI at 1/dt Hz
 
         rospy.loginfo("MPPI Controller Node Initialization Complete.")
         # Set up dynamic reconfigure server for tuning MPC parameters
         # self.dyn_server = Server(MPPIParamsConfig, self.dynamic_reconfigure_callback)
 
+        # Deadband
+        self.MPPI_mode = np.array(['ON', 'ON', 'ON'], dtype='<U3')
+        self.r_on = np.array([0.05, 0.05, 0.05])
+        self.r_off = np.array([0.02, 0.02, 0.02])
+
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
-        self.hex_mass = 7  # kg (example value)
+        self.hex_mass = 6.15  # kg (example value)
         self.inertia_flat = np.array([0.21, 0.21, 0.40])
         self.inertia_matrix = np.diag(self.inertia_flat)
 
@@ -175,6 +183,7 @@ class MPPIControllerNode(object):
 
     def activate_callback(self, data):
         self.activate = data.data
+        self.mppi_state = self.current_state
 
     def target_callback(self, data):
         rospy.loginfo("MPPI Target Recieved")
@@ -212,7 +221,14 @@ class MPPIControllerNode(object):
          - Shift the previous optimal control sequence.
          - Solve for a new sequence.
         """
-        self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
+        if self.use_local_state:
+            if self.mppi_state is None:
+                self.mppi_state = self.current_state
+                self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
+            else:
+                self.mppi_controller.shift_and_update(self.mppi_state, self.optimal_control_seq, num_shifts=1)
+        else:
+            self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
 
     def forward_simulate_for_mpc_target(self):
@@ -221,13 +237,36 @@ class MPPIControllerNode(object):
         to obtain a target state that MPC can track.
         """
         mppi_u = self.optimal_control_seq[0, :].copy()
+        
 
+        if self.use_local_state:
+            forward_steps = max(int(self.mpc_horizon/self.cfg.dt), 1)
+            for i in range(forward_steps-1):
+                mppi_u = self.optimal_control_seq[i, :].copy()
+                self.mppi_state = self.dynamics_update(self.mppi_state.copy(), mppi_u, self.cfg.dt)
+            next_state = self.mppi_state.copy()    
+
+        else:
+            next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
-        next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+
+
+        # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+        
+        
         # Zero-out the angular velocity components for the target
-        next_state[6:] = np.zeros(6)
-        self.mpc_target = next_state
+        # next_state[6:] = np.zeros(6)
+
+        # Periodically update the internal state by blending it with the current state:
+        
+        # alpha = 0.1  # Adjust this parameter as needed
+        # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
+
+        next_state_filtered = self.lpf.filter(next_state)
+        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
+        self.mppi_state = next_state_filtered
+        self.mpc_target = next_state_filtered
 
     def dynamics_update(self, state, control_inputs, dt):
         """
@@ -250,17 +289,41 @@ class MPPIControllerNode(object):
         Publish the computed MPC target as a PoseStamped message.
         (For simplicity, only position is set; orientation is left as a unit quaternion.)
         """
+        xgoal = self.mppi_controller.params['xgoal']
+        curr  = self.current_state     
+        next_ = self.mpc_target        
+        
+        # Update per-dimension ON/OFF state
+        for i in range(3):  # i=0->x,1->y,2->z
+            if self.MPPI_mode[i] == 'OFF':
+                # Currently OFF => we only switch ON if we exceed r_on
+                if abs(curr[i] - xgoal[i]) > self.r_on[i]:
+                    self.MPPI_mode[i] = 'ON'
+            elif self.MPPI_mode[i] == 'ON':
+                # Currently ON => we switch OFF if we go below r_off
+                if abs(curr[i] - xgoal[i]) < self.r_off[i]:
+                    self.MPPI_mode[i] = 'OFF'
+
+        # Build the final target state dimension by dimension
+        #    If OFF => lock dimension to xgoal, otherwise use next_.
+        final_target = np.copy(next_)
+        for i in range(3):
+            if self.MPPI_mode[i] == 'OFF':
+                final_target[i] = xgoal[i]
+        
+
         target_msg = PoseStamped()
         target_msg.header.stamp = rospy.Time.now()
-        target_msg.pose.position.x = self.mpc_target[0]
-        target_msg.pose.position.y = self.mpc_target[1]
-        target_msg.pose.position.z = self.mpc_target[2]
-        # Orientation: for now, set to a default value (no rotation)
-        target_msg.pose.orientation.x = 0.0
-        target_msg.pose.orientation.y = 0.0
-        target_msg.pose.orientation.z = 0.0
+        target_msg.pose.position.x = final_target[0]
+        target_msg.pose.position.y = final_target[1]
+        target_msg.pose.position.z = final_target[2]
+        target_msg.pose.orientation.x = final_target[6]
+        target_msg.pose.orientation.y = final_target[7]
+        target_msg.pose.orientation.z = final_target[8]
         target_msg.pose.orientation.w = 1.0
         self.target_pub.publish(target_msg)
+
+
         self.target_pub_debug.publish(target_msg)
 
     def spin(self):
@@ -275,11 +338,11 @@ class MPPIControllerNode(object):
 
 # --- Optional: a simple online low-pass filter class (if needed) ---
 class OnlineLPF(object):
-    def __init__(self, b, a, num_controls):
+    def __init__(self, b, a, num_states):
         self.b = b
         self.a = a
-        self.prev_input = np.zeros(num_controls)
-        self.prev_output = np.zeros(num_controls)
+        self.prev_input = np.zeros(num_states)
+        self.prev_output = np.zeros(num_states)
 
     def filter(self, u_curr):
         filtered_u = (self.b[0] * u_curr +

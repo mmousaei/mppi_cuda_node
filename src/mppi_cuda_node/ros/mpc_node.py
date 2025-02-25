@@ -50,13 +50,13 @@ class MPCControllerNode(object):
             'horizon': 30,
             'gravity': 9.81,
             'max_force': 10.0,
-            'max_torque': 1,
+            'max_torque': 5.0,
             'control_weight': 0.5,
-            'tracking_weight_pos': 20,
+            'tracking_weight_pos': 100,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 20,
-            'tracking_weight_ang_vel': 5,
-            'terminal_weight': 2,
+            'tracking_weight_att': 300,
+            'tracking_weight_ang_vel': 1,
+            'terminal_weight': 0.0,
             'smoothness_weight': 0.05,
             'dt': 0.01
         }
@@ -108,7 +108,7 @@ class MPCControllerNode(object):
 
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
-        self.hex_mass = 7  # kg (example value)
+        self.hex_mass = 6.15  # kg (example value)
         self.inertia_flat = np.array([0.21, 0.21, 0.40])
         self.inertia_matrix = np.diag(self.inertia_flat)
 
@@ -153,9 +153,9 @@ class MPCControllerNode(object):
         # Publish attitude debug message
         att_msg = Vector3Stamped()
         att_msg.header.stamp = data.header.stamp
-        att_msg.vector.x = euler[0]
-        att_msg.vector.y = euler[1]
-        att_msg.vector.z = euler[2]
+        att_msg.vector.x = euler[0] * 180 / np.pi
+        att_msg.vector.y = euler[1] * 180 / np.pi
+        att_msg.vector.z = euler[2] * 180 / np.pi
         self.att_debug_pub.publish(att_msg)
 
     def mpc_target_callback(self, data):
@@ -168,6 +168,9 @@ class MPCControllerNode(object):
         self.mpc_target[2] = data.pose.position.z
         # For simplicity, we zero the remaining state elements.
 
+        # self.mpc_target[6] = data.pose.orientation.x
+        # self.mpc_target[7] = data.pose.orientation.y
+        # self.mpc_target[8] = data.pose.orientation.z
         self.mpc_target[3:] = 0.0
         # self.mpc_target[8] = data.pose.orientation.z
         
@@ -176,7 +179,7 @@ class MPCControllerNode(object):
         Normalize/scaling for MPC outputs (body rates and thrust).
         Adjust these gains to suit your vehicle.
         """
-        hover_thrust = 0.6567
+        hover_thrust = 0.61
         ctrl[0] = ctrl[0] * 0.515336334
         ctrl[1] = ctrl[1] * 0.515336334
         ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
@@ -273,3 +276,7 @@ if __name__ == '__main__':
         node.spin()
     except rospy.ROSInterruptException:
         pass
+
+
+
+ 
