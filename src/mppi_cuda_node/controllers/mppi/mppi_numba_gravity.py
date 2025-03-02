@@ -445,7 +445,7 @@ class MPPI_Numba(object):
         self.costs_d
       )
       self.u_prev_d = self.u_cur_d
-
+      
       # Compute cost and update the optimal control on device
       self.update_useq_numba[1, 32](
         lambda_weight_d, 
@@ -456,6 +456,8 @@ class MPPI_Numba(object):
         wrange_d,
         self.u_cur_d
       )
+
+      cost = self.costs_d.copy_to_host()
 
     return self.u_cur_d.copy_to_host()
 
@@ -598,7 +600,7 @@ class MPPI_Numba(object):
       dist_to_goal2 = cost_weights_d[0]*((xgoal_d[0]-x_curr[0])**2) + cost_weights_d[1]*((xgoal_d[1]-x_curr[1])**2) + cost_weights_d[2]*((xgoal_d[2]-x_curr[2])**2) \
                     + cost_weights_d[3]*((xgoal_d[3]-x_curr[3])**2) + cost_weights_d[4]*((xgoal_d[4]-x_curr[4])**2) + cost_weights_d[5]*((xgoal_d[5]-x_curr[5])**2)\
                     + cost_weights_d[6]*((xgoal_d[6]-x_curr[6])**2) + cost_weights_d[7]*((xgoal_d[7]-x_curr[7])**2) + cost_weights_d[8]*((xgoal_d[8]-x_curr[8])**2)\
-                    + cost_weights_d[9]*((xgoal_d[9]-x_curr[9])**2) + cost_weights_d[10]*((xgoal_d[10]-x_curr[10])**2) + cost_weights_d[11]**(xgoal_d[11]-x_curr[11])**2\
+                    + cost_weights_d[9]*((xgoal_d[9]-x_curr[9])**2) + cost_weights_d[10]*((xgoal_d[10]-x_curr[10])**2) + cost_weights_d[11]*(xgoal_d[11]-x_curr[11])**2\
                     + cost_weights_d[12]*((u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
                     + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2))
                     
@@ -614,6 +616,7 @@ class MPPI_Numba(object):
       if dist_to_goal2<= goal_tolerance_d2:
         goal_reached = True
         break
+    
     # Accumulate terminal cost 
     costs_d[bid] += cost_weights_d[16] * term_cost(dist_to_goal2, goal_reached)
     # Add Control cost 
