@@ -20,8 +20,8 @@ from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
 
 # --- MPPI imports ---
-# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
+# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
 
@@ -82,11 +82,9 @@ class MPPIControllerNode(object):
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
                 19550, 19550, 84840,
-                10, 10, 10,
+                100, 100, 100,
                 2550, 2550, 2550,
                 1, 1, 1,
-                42500, 42500, 42500,
-                100, 100, 100,
                 1, 100, 1, 100, 20
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
@@ -277,7 +275,7 @@ class MPPIControllerNode(object):
 
         next_state_filtered = self.lpf.filter(next_state)
         next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
-        next_state_filtered[2] += self.I_gain_z * self.integral_error_z
+        # next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
 
