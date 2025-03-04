@@ -20,7 +20,8 @@ from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
 
 # --- MPPI imports ---
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
+# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
 
@@ -57,8 +58,8 @@ class MPPIControllerNode(object):
 
         # ----- MPPI Setup -----
         self.cfg = Config(
-            T=2.0,            # Horizon length in seconds
-            dt=0.3,         # Time step (seconds)
+            T=1.0,            # Horizon length in seconds
+            dt=0.2,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -74,20 +75,23 @@ class MPPIControllerNode(object):
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 40,
-            'num_opt': 8,
+            'lambda_weight': 10,
+            'num_opt': 5,
             'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                9550, 9550, 24840,
+                19550, 19550, 84840,
                 10, 10, 10,
-                25500, 25500, 25500,
+                2550, 2550, 2550,
                 1, 1, 1,
                 1, 100, 1, 100, 9000
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
+        self.integral_error_z = 0.0  # Initialize integral error for z tracking
+        self.I_gain_z = 0.1  # Small integral gain (tune this!)
+
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
 
@@ -184,6 +188,7 @@ class MPPIControllerNode(object):
     def activate_callback(self, data):
         self.activate = data.data
         self.mppi_state = self.current_state
+        self.integral_error_z = 0.0
 
     def target_callback(self, data):
         rospy.loginfo("MPPI Target Recieved")
@@ -214,6 +219,11 @@ class MPPIControllerNode(object):
 
         # Angular velocities
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
+
+        z_error = self.mppi_controller.params['xgoal'][2] - self.current_state[2]  # z_target - z_current
+        self.integral_error_z += z_error * self.cfg.dt  # Discrete integration
+        self.integral_error_z = np.clip(self.integral_error_z, -0.1, 0.1)  # Tune the range
+
 
     def run_mppi(self):
         """
@@ -265,8 +275,10 @@ class MPPIControllerNode(object):
 
         next_state_filtered = self.lpf.filter(next_state)
         next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
+        next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
+
 
     def dynamics_update(self, state, control_inputs, dt):
         """
@@ -307,9 +319,9 @@ class MPPIControllerNode(object):
         # Build the final target state dimension by dimension
         #    If OFF => lock dimension to xgoal, otherwise use next_.
         final_target = np.copy(next_)
-        for i in range(3):
-            if self.MPPI_mode[i] == 'OFF':
-                final_target[i] = xgoal[i]
+        # for i in range(3):
+        #     if self.MPPI_mode[i] == 'OFF':
+        #         final_target[i] = xgoal[i]
         
 
         target_msg = PoseStamped()
