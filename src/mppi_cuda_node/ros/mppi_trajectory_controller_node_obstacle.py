@@ -18,21 +18,19 @@ from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped
 from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
+# --- Additional imports for Gazebo service calls ---
+from gazebo_msgs.msg import ModelState
+from gazebo_msgs.srv import SetModelState
 
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_obstacle_avoidance import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
-
-from scipy.signal import butter
 from scipy.spatial.transform import Rotation
-
 
 # Global flag (if you want to enable gravity in MPPI)
 GRAVITY = True
-
-
 
 def butter_lowpass_online(cutoff, fs, order=1):
     """
@@ -47,7 +45,11 @@ class MPPIControllerNode(object):
     def __init__(self):
         rospy.init_node('mppi_controller', anonymous=True)
         rospy.loginfo("Initializing MPPI Controller Node ...")
-
+        
+        # Initialize Gazebo service proxy for setting model state.
+        rospy.wait_for_service('/gazebo/set_model_state')
+        self.set_model_state_srv = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        
         # ----- Initialize state and parameters -----
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.mpc_target = np.zeros(12)     # Target state for MPC (to be computed)
@@ -68,32 +70,34 @@ class MPPIControllerNode(object):
         )
         self.mppi_controller = MPPI_Numba(self.cfg)
         self.use_local_state = False
+        # Set initial obstacle positions; these will be updated dynamically.
+        obs_positions = np.array([[1.0, 1.0, 0.5],
+                                  [2.0, -1.0, 0.5]], dtype=np.float32)
+        obs_radius = np.array([0.5, 0.5], dtype=np.float32)
         self.mppi_params = {
             'dt': self.cfg.dt,
             'x0': self.current_state,
             # Default goal (can be updated via an external command if desired)
-            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            'xgoal': np.array([8, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 5,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'num_opt': 8,
+            'u_std': np.array([2, 2, 2, 0.05, 0.05, 0.05]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 84840,
-                10, 10, 10,
-                2550, 2550, 2550,
+                29550, 29550, 42840,
                 1, 1, 1,
                 42500, 42500, 42500,
                 100, 100, 100,
                 1, 100, 1, 100, 20
             ]),
-            "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
+            "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass]),
+            "obstacle_positions": obs_positions,
+            "obstacle_radius": obs_radius,
+            "obs_penalty": 1e10
         }
-        self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.1  # Small integral gain (tune this!)
-
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
 
@@ -132,6 +136,50 @@ class MPPIControllerNode(object):
         self.r_on = np.array([0.05, 0.05, 0.05])
         self.r_off = np.array([0.02, 0.02, 0.02])
 
+    def update_spheres(self):
+        """
+        Compute new positions for sphere1 and sphere2 moving in a circle (constant Z),
+        update their states in Gazebo via the set_model_state service,
+        and update the obstacle positions in the MPPI parameters.
+        """
+        t = rospy.get_time()
+        R = 2.0           # Circle radius
+        omega = 0.1      # Angular speed in rad/s
+        # Compute positions for sphere1 and sphere2 (diametrically opposite)
+        x1 = R * np.cos(omega * t)
+        y1 = R * np.sin(omega * t)
+        x2 = R * np.cos(omega * t + np.pi)
+        y2 = R * np.sin(omega * t + np.pi)
+        z = 0.5           # Constant Z height
+
+        # Create ModelState messages for each sphere
+        state1 = ModelState()
+        state1.model_name = "sphere1"
+        state1.pose.position.x = x1
+        state1.pose.position.y = y1
+        state1.pose.position.z = z
+        state1.pose.orientation.w = 1.0
+
+        state2 = ModelState()
+        state2.model_name = "sphere2"
+        state2.pose.position.x = x2
+        state2.pose.position.y = y2
+        state2.pose.position.z = z
+        state2.pose.orientation.w = 1.0
+
+        try:
+            resp1 = self.set_model_state_srv(state1)
+            resp2 = self.set_model_state_srv(state2)
+            rospy.loginfo("Updated spheres: sphere1 (%.2f, %.2f, %.2f), sphere2 (%.2f, %.2f, %.2f)", 
+                          x1, y1, z, x2, y2, z)
+        except rospy.ServiceException as e:
+            rospy.logerr("Failed to update sphere states: %s", e)
+
+        # Update obstacle positions in the MPPI parameters with the new sphere positions.
+        self.mppi_params['obstacle_positions'] = np.array([[x1, y1, z],
+                                                           [x2, y2, z]], dtype=np.float32)
+        self.mppi_controller.set_params(self.mppi_params)
+
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
         self.hex_mass = 6.15  # kg (example value)
@@ -140,12 +188,15 @@ class MPPIControllerNode(object):
 
     def dynamic_reconfigure_callback(self, config, level):
         rospy.loginfo("MPPI Dynamic Reconfigure Request:\n"
-                    "dt = %.3f\ngoal_tolerance = %.4f\ndist_weight = %.2f\nlambda_weight = %.2f\nnum_opt = %d\nu_std = [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]\nweights = [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]",
-                    config['dt'],config['goal_tolerance'],config['dist_weight'],config['lambda_weight'],config['num_opt'],config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz'],config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'], config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'], config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term'])
+                      "dt = %.3f\ngoal_tolerance = %.4f\ndist_weight = %.2f\nlambda_weight = %.2f\nnum_opt = %d\nu_std = [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]\nweights = [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]",
+                      config['dt'], config['goal_tolerance'], config['dist_weight'], config['lambda_weight'], config['num_opt'],
+                      config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz'],
+                      config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'],
+                      config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'],
+                      config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term'])
         
         # Update scalar MPPI parameters
         self.cfg.dt = config['dt']
-        # self.mppi_params['dt'] = config['dt']
         self.mppi_params['goal_tolerance'] = config['goal_tolerance']
         self.mppi_params['dist_weight'] = config['dist_weight']
         self.mppi_params['lambda_weight'] = config['lambda_weight']
@@ -190,7 +241,6 @@ class MPPIControllerNode(object):
     def activate_callback(self, data):
         self.activate = data.data
         self.mppi_state = self.current_state
-        self.integral_error_z = 0.0
 
     def target_callback(self, data):
         rospy.loginfo("MPPI Target Recieved")
@@ -204,7 +254,7 @@ class MPPIControllerNode(object):
             data.pose.orientation.z,
             0, 0, 0
         ])
-
+        self.mppi_controller.set_params(self.mppi_controller.params)
     def odometry_callback(self, data):
         # Update the current state based on odometry
         pose = data.pose.pose
@@ -221,11 +271,6 @@ class MPPIControllerNode(object):
 
         # Angular velocities
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
-
-        z_error = self.mppi_controller.params['xgoal'][2] - self.current_state[2]  # z_target - z_current
-        self.integral_error_z += z_error * self.cfg.dt  # Discrete integration
-        self.integral_error_z = np.clip(self.integral_error_z, -0.1, 0.1)  # Tune the range
-
 
     def run_mppi(self):
         """
@@ -250,47 +295,23 @@ class MPPIControllerNode(object):
         """
         mppi_u = self.optimal_control_seq[0, :].copy()
         
-
         if self.use_local_state:
             forward_steps = max(int(self.mpc_horizon/self.cfg.dt), 1)
             for i in range(forward_steps-1):
                 mppi_u = self.optimal_control_seq[i, :].copy()
                 self.mppi_state = self.dynamics_update(self.mppi_state.copy(), mppi_u, self.cfg.dt)
             next_state = self.mppi_state.copy()    
-
         else:
             next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
-        # (Optional) Gravity compensation could be applied here if desired.
-        # Forward-simulate using a simple RK4 integration:
-
-
-        # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
         
-        
-        # Zero-out the angular velocity components for the target
-        # next_state[6:] = np.zeros(6)
-
-        # Periodically update the internal state by blending it with the current state:
-        
-        # alpha = 0.1  # Adjust this parameter as needed
-        # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
-
         next_state_filtered = self.lpf.filter(next_state)
-        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
-        next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
-
 
     def dynamics_update(self, state, control_inputs, dt):
         """
         A simple RK4 integration for the hexarotor dynamics.
         """
-        # k1 = dynamics_update_sim(state, control_inputs, dt)
-        # k2 = dynamics_update_sim(state + k1 / 2, control_inputs, dt) 
-        # k3 = dynamics_update_sim(state + k2 / 2, control_inputs, dt)
-        # k4 = dynamics_update_sim(state + k3, control_inputs, dt)
-        
         k1 = self.hex_dynamics(state, control_inputs) * dt
         k2 = self.hex_dynamics(state + k1 / 2, control_inputs) * dt 
         k3 = self.hex_dynamics(state + k2 / 2, control_inputs) * dt
@@ -307,24 +328,23 @@ class MPPIControllerNode(object):
         curr  = self.current_state     
         next_ = self.mpc_target        
         
-        # Update per-dimension ON/OFF state
         for i in range(3):  # i=0->x,1->y,2->z
             if self.MPPI_mode[i] == 'OFF':
-                # Currently OFF => we only switch ON if we exceed r_on
                 if abs(curr[i] - xgoal[i]) > self.r_on[i]:
                     self.MPPI_mode[i] = 'ON'
             elif self.MPPI_mode[i] == 'ON':
-                # Currently ON => we switch OFF if we go below r_off
                 if abs(curr[i] - xgoal[i]) < self.r_off[i]:
                     self.MPPI_mode[i] = 'OFF'
 
-        # Build the final target state dimension by dimension
-        #    If OFF => lock dimension to xgoal, otherwise use next_.
         final_target = np.copy(next_)
-        # for i in range(3):
-        #     if self.MPPI_mode[i] == 'OFF':
-        #         final_target[i] = xgoal[i]
-        
+
+        for i in range(3):
+            if self.MPPI_mode[i] == 'OFF':
+                final_target[i] = xgoal[i]
+        # if self.MPPI_mode[2] == 'OFF':
+        #     final_target[2] = xgoal[2]
+        # if self.MPPI_mode[0] == 'OFF' and self.MPPI_mode[1] == 'OFF':
+        #     final_target[:2] = xgoal[:2]
 
         target_msg = PoseStamped()
         target_msg.header.stamp = rospy.Time.now()
@@ -336,19 +356,17 @@ class MPPIControllerNode(object):
         target_msg.pose.orientation.z = final_target[8]
         target_msg.pose.orientation.w = 1.0
         self.target_pub.publish(target_msg)
-
-
         self.target_pub_debug.publish(target_msg)
 
     def spin(self):
         rate = rospy.Rate(self.mppi_rate_hz)
         while not rospy.is_shutdown():
-            
+            # First update sphere positions and MPPI obstacle parameters
+            # self.update_spheres()
             self.run_mppi()
             self.forward_simulate_for_mpc_target()
             self.publish_mpc_target()
             rate.sleep()
-
 
 # --- Optional: a simple online low-pass filter class (if needed) ---
 class OnlineLPF(object):
@@ -365,7 +383,6 @@ class OnlineLPF(object):
         self.prev_input = u_curr
         self.prev_output = filtered_u
         return filtered_u
-
 
 if __name__ == '__main__':
     try:

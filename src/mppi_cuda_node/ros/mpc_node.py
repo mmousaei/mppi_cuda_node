@@ -50,13 +50,13 @@ class MPCControllerNode(object):
             'horizon': 30,
             'gravity': 9.81,
             'max_force': 10.0,
-            'max_torque': 5.0,
-            'control_weight': 0.5,
+            'max_torque': 1.0,
+            'control_weight': 0.4,
             'tracking_weight_pos': 100,
             'tracking_weight_vel': 3,
-            'tracking_weight_att': 300,
-            'tracking_weight_ang_vel': 1,
-            'terminal_weight': 0.0,
+            'tracking_weight_att': 100,
+            'tracking_weight_ang_vel': 4,
+            'terminal_weight': 0.1,
             'smoothness_weight': 0.05,
             'dt': 0.01
         }
@@ -153,9 +153,9 @@ class MPCControllerNode(object):
         # Publish attitude debug message
         att_msg = Vector3Stamped()
         att_msg.header.stamp = data.header.stamp
-        att_msg.vector.x = euler[0] * 180 / np.pi
-        att_msg.vector.y = euler[1] * 180 / np.pi
-        att_msg.vector.z = euler[2] * 180 / np.pi
+        att_msg.vector.x = euler[0] #* 180 / np.pi
+        att_msg.vector.y = euler[1] #* 180 / np.pi
+        att_msg.vector.z = euler[2] #* 180 / np.pi
         self.att_debug_pub.publish(att_msg)
 
     def mpc_target_callback(self, data):
@@ -166,12 +166,15 @@ class MPCControllerNode(object):
         self.mpc_target[0] = data.pose.position.x
         self.mpc_target[1] = data.pose.position.y
         self.mpc_target[2] = data.pose.position.z
+        # self.mpc_target[0] = 0
+        # self.mpc_target[1] = 0
+        # self.mpc_target[2] = 0.8
+
         # For simplicity, we zero the remaining state elements.
 
+        self.mpc_target[3:] = 0.0
         # self.mpc_target[6] = data.pose.orientation.x
         # self.mpc_target[7] = data.pose.orientation.y
-        # self.mpc_target[8] = data.pose.orientation.z
-        self.mpc_target[3:] = 0.0
         # self.mpc_target[8] = data.pose.orientation.z
         
     def normalize_control_inputs_mpc(self, ctrl):
