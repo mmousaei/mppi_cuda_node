@@ -4,12 +4,16 @@ from geometry_msgs.msg import PoseStamped
 import numpy as np
 from tf.transformations import quaternion_from_euler
 
-def send_excitation_trajectory(start, max_duration=10, pub_rate=5, excitation_amp=0.1, excitation_freq=0.1, excite_roll=True, excite_pitch=True, excite_yaw=True):
+def send_excitation_trajectory(start, max_duration=10, pub_rate=5, excitation_amp=0.01, excitation_freq=0.05, excite_roll=True, excite_pitch=False, excite_yaw=False):
     pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
     rate = rospy.Rate(pub_rate)
     num_steps = int(max_duration * pub_rate)
+    total_time = num_steps / float(pub_rate)
+    complete_cycles = np.ceil(total_time * excitation_freq)  # Ensure we finish full cycles
+    adjusted_max_duration = complete_cycles / excitation_freq
+    num_steps = int(adjusted_max_duration * pub_rate)  # Recalculate steps
     
-    rospy.loginfo("Publishing {} waypoints with attitude excitation.".format(num_steps))
+    rospy.loginfo("Publishing {} waypoints with attitude excitation, ensuring full cycle completion.".format(num_steps))
     
     for i in range(num_steps):
         time = i / float(pub_rate)  # Time for sinusoidal excitation
@@ -25,10 +29,10 @@ def send_excitation_trajectory(start, max_duration=10, pub_rate=5, excitation_am
         pose_msg.pose.position.x = start[0]
         pose_msg.pose.position.y = start[1]
         pose_msg.pose.position.z = start[2]
-        pose_msg.pose.orientation.x = roll
-        pose_msg.pose.orientation.y = pitch
-        pose_msg.pose.orientation.z = yaw
-        pose_msg.pose.orientation.w = 1
+        pose_msg.pose.orientation.x = quat[0]
+        pose_msg.pose.orientation.y = quat[1]
+        pose_msg.pose.orientation.z = quat[2]
+        pose_msg.pose.orientation.w = quat[3]
         
         pub.publish(pose_msg)
         rospy.loginfo("Published waypoint {}: Position {} Attitude [roll: {}, pitch: {}, yaw: {}]".format(i, start, roll, pitch, yaw))
@@ -36,7 +40,7 @@ def send_excitation_trajectory(start, max_duration=10, pub_rate=5, excitation_am
 
 if __name__ == '__main__':
     rospy.init_node('excitation_target_publisher')
-    start_position = [0.5, 0.5, 1.5]
+    start_position = [0.0, 0.0, 0.8]
     try:
         send_excitation_trajectory(start_position)
     except rospy.ROSInterruptException:
