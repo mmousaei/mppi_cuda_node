@@ -82,16 +82,16 @@ class MPPIControllerNode(object):
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 84840,
-                100, 100, 100,
-                2550, 2550, 2550,
+                19550, 19550, 24840,
                 1, 1, 1,
-                1, 100, 1, 100, 20
+                25500, 25500, 25500,
+                1, 1, 1,
+                1, 100, 1, 100, 200
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
         self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.1  # Small integral gain (tune this!)
+        self.I_gain_z = 0.05  # Small integral gain (tune this!)
 
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
@@ -320,9 +320,9 @@ class MPPIControllerNode(object):
         # Build the final target state dimension by dimension
         #    If OFF => lock dimension to xgoal, otherwise use next_.
         final_target = np.copy(next_)
-        # for i in range(3):
-        #     if self.MPPI_mode[i] == 'OFF':
-        #         final_target[i] = xgoal[i]
+        for i in range(3):
+            if self.MPPI_mode[i] == 'OFF':
+                final_target[i] = xgoal[i]
         
 
         target_msg = PoseStamped()

@@ -213,12 +213,12 @@ def calculate_contact_force_moment_naiive(x, u, A, B, C, D, contact_normal_sq, c
 @cuda.jit(device=True, fastmath=True)
 def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   # The dynamics update for hexarotor
-  contact_normal = np.array([-1, 0, 0])
+  contact_normal = (-1, 0, 0)
   contact_normal_sq = 1
   A = -1
   B = 0
   C = 0
-  D = 15
+  D = 9.2
   ABC_sq = 1
 
   I_xx = inertia_mass[0]
@@ -226,10 +226,13 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   I_zz = inertia_mass[2]
   mass = inertia_mass[3]
 
-  contact_force_x, contact_force_y, contact_force_z, contact_velocity_x, contact_velocity_y, contact_velocity_z\
-    , contact_moment_x, contact_moment_y, contact_moment_z = \
-    calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
-  
+  contact_force_x, contact_force_y, contact_force_z, \
+  contact_velocity, \
+  contact_moment_x, contact_moment_y, contact_moment_z = \
+      calculate_contact_force_moment_naiive(x, u, A, B, C, D, contact_normal_sq, contact_normal, 100.0, 10.0, 1.0)
+
+
+
   g = 9.81
 
   fx_total = u[0] + contact_force_x 

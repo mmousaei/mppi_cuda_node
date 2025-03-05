@@ -880,15 +880,16 @@ if __name__ == "__main__":
     num_controls = 6
     num_states = 12
     cfg = Config(
-            T=2,                # Horizon length in seconds
-            dt=0.3,        # Time step
+            T=1,                # Horizon length in seconds
+            dt=0.2,        # Time step
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
             seed=1
         )
-    x0 = np.array([0,0, 0, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    # x0 = np.array([0,0, 0, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    x0 = np.array([0,0, 0, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
@@ -902,16 +903,16 @@ if __name__ == "__main__":
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 8,
+            'num_opt': 5,
             'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                9550, 9550, 24840,
-                10, 10, 10,
+                19550, 19550, 24840,
+                1, 1, 1,
                 25500, 25500, 25500,
                 1, 1, 1,
-                1, 100, 1, 100, 9000
+                1, 100, 1, 100, 2000
             ]),
             "inertia_mass": np.array([0.21, 0.21, 0.4, 6.15])
         }

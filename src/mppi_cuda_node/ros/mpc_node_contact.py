@@ -88,6 +88,7 @@ class MPCControllerNode(object):
         self.control_pub = rospy.Publisher('/mppi_debug/control_cmd', WrenchStamped, queue_size=10)
         self.att_debug_pub = rospy.Publisher('/mppi_debug/att_debug', Vector3Stamped, queue_size=10)
         self.fixed_traj_pub = rospy.Publisher("/fixed_trajectory", FixedTrajectory, queue_size=10)
+        self.ft_pub = rospy.Publisher("/ft_filtered", WrenchStamped, queue_size=10)
 
         # ----- MAVLink transmitter -----
         self.transmitter = MavlinkTransmitter()
@@ -97,9 +98,19 @@ class MPCControllerNode(object):
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mpc/target', PoseStamped, self.mpc_target_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
+        rospy.Subscriber('/ft_data', WrenchStamped, self.force_sensor_callback)
 
         self.mpc_rate_hz = 100.0  # Run MPC at 50 Hz
         self.last_time_pid_pos_publish = rospy.Time.now()
+
+        # Force sensor variable: we'll update this with sensor data.
+        # Smoothing factor between 0 (very smooth) and 1 (no filtering)
+        self.alpha = 0.05  
+        # Initialize the filtered force vector (x, y, z)
+        self.filtered_force = [0.0, 0.0, 0.0]
+        self.initialized_filter = False
+        # You might also want to keep the latest raw measurement if needed
+        self.measured_force = [0.0, 0.0, 0.0]
 
         # Set up dynamic reconfigure server for tuning MPC parameters
         # self.dyn_server = Server(MPCParamsConfig, self.dynamic_reconfigure_callback)
@@ -129,6 +140,39 @@ class MPCControllerNode(object):
         self.mpc.update_parameters(self.mpc_params)
         return config
 
+    def force_sensor_callback(self, msg):
+        """
+        Callback for force sensor data.
+        Applies an exponential moving average filter to reduce high-frequency noise.
+        """
+        # Extract raw force data from the message
+        raw_force = [
+            msg.wrench.force.x,
+            msg.wrench.force.y,
+            msg.wrench.force.z
+        ]
+        # On the first callback, initialize the filtered value with the raw data
+        if not self.initialized_filter:
+            self.filtered_force = raw_force
+            self.initialized_filter = True
+        else:
+            # Apply the exponential moving average filter
+            self.filtered_force = [
+                self.alpha * raw + (1 - self.alpha) * filt
+                for raw, filt in zip(raw_force, self.filtered_force)
+            ]
+        filtered_force_msg = WrenchStamped()
+
+        filtered_force_msg = msg
+
+        filtered_force_msg.wrench.force.x = self.filtered_force[0]
+        filtered_force_msg.wrench.force.y = self.filtered_force[1]
+        filtered_force_msg.wrench.force.z = self.filtered_force[2]
+
+        self.ft_pub.publish(filtered_force_msg)
+        
+        # Update measured_force with the filtered value
+        self.measured_force = self.filtered_force
 
     def activate_callback(self, data):
         self.activate = data.data
@@ -208,6 +252,9 @@ class MPCControllerNode(object):
             np.zeros(6),
             self.mpc_params['dt']
         )
+
+        F_measured = self.measured_force
+        F_des = np
         return u_mpc
     def run_mpc_tube(self):
         """

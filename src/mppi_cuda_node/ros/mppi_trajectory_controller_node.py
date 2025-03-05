@@ -81,16 +81,16 @@ class MPPIControllerNode(object):
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 84840,
-                100, 100, 100,
-                2550, 2550, 2550,
+                19550, 19550, 24840,
                 1, 1, 1,
-                1, 100, 1, 100, 20
+                25500, 25500, 25500,
+                1, 1, 1,
+                1, 100, 1, 100, 200
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
         self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.1  # Small integral gain (tune this!)
+        self.I_gain_z = 0.05  # Small integral gain (tune this!)
 
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
@@ -251,7 +251,8 @@ class MPPIControllerNode(object):
 
         if self.use_local_state:
             forward_steps = max(int(self.mpc_horizon/self.cfg.dt), 1)
-            for i in range(forward_steps-1):
+            # forward_steps = 1
+            for i in range(forward_steps):
                 mppi_u = self.optimal_control_seq[i, :].copy()
                 self.mppi_state = self.dynamics_update(self.mppi_state.copy(), mppi_u, self.cfg.dt)
             next_state = self.mppi_state.copy()    
@@ -275,7 +276,7 @@ class MPPIControllerNode(object):
 
         next_state_filtered = self.lpf.filter(next_state)
         next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
-        # next_state_filtered[2] += self.I_gain_z * self.integral_error_z
+        next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
 
