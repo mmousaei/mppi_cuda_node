@@ -53,10 +53,10 @@ class MPCControllerNode(object):
             'max_torque': 1.0,
             'control_weight': 0.4,
             'tracking_weight_pos': 100,
-            'tracking_weight_vel': 3,
-            'tracking_weight_att': 100,
-            'tracking_weight_ang_vel': 4,
-            'terminal_weight': 0.1,
+            'tracking_weight_vel': 10,
+            'tracking_weight_att': 50,
+            'tracking_weight_ang_vel': 1,
+            'terminal_weight': 30,
             'smoothness_weight': 0.05,
             'dt': 0.01
         }
@@ -147,7 +147,7 @@ class MPCControllerNode(object):
         euler = euler_from_quaternion(quaternion)
         self.current_state[6:9] = euler
 
-        self.current_state[6:9] += np.random.normal(loc=0.0, scale=0.01, size=self.current_state[6:9].shape)
+        # self.current_state[6:9] += (np.array([0.02, -0.02, 0.00]) + np.random.normal(loc=0.0, scale=0.01, size=self.current_state[6:9].shape))
 
         # Angular velocities
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
@@ -174,10 +174,10 @@ class MPCControllerNode(object):
 
         # For simplicity, we zero the remaining state elements.
 
-        self.mpc_target[3:] = 0.0
-        # self.mpc_target[6] = data.pose.orientation.x
-        # self.mpc_target[7] = data.pose.orientation.y
-        # self.mpc_target[8] = data.pose.orientation.z
+        # self.mpc_target[3:] = 0.0
+        self.mpc_target[6] = data.pose.orientation.x
+        self.mpc_target[7] = data.pose.orientation.y
+        self.mpc_target[8] = data.pose.orientation.z
         
     def normalize_control_inputs_mpc(self, ctrl):
         """
@@ -185,10 +185,10 @@ class MPCControllerNode(object):
         Adjust these gains to suit your vehicle.
         """
         hover_thrust = 0.61
-        ctrl[0] = ctrl[0] * 0.515336334
-        ctrl[1] = ctrl[1] * 0.515336334
+        ctrl[0] = ctrl[0] * 0.022
+        ctrl[1] = ctrl[1] * 0.027
         ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
-        ctrl[3:6] = ctrl[3:6] * 0.5
+        ctrl[3:6] = ctrl[3:6] * 0.72
         return ctrl
 
     def run_mpc(self):

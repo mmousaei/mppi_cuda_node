@@ -32,8 +32,6 @@ from scipy.spatial.transform import Rotation
 # Global flag (if you want to enable gravity in MPPI)
 GRAVITY = True
 
-
-
 def butter_lowpass_online(cutoff, fs, order=1):
     """
     Design a low-pass Butterworth filter and return coefficients.
@@ -56,6 +54,12 @@ class MPPIControllerNode(object):
 
         self.initialize_hexarotor_parameters()
 
+        # --- Initialize bias estimator ---
+        # We'll use a simple exponential moving average to estimate the bias
+        self.bias_estimate = np.zeros(3)  # Estimated bias for [roll, pitch, yaw]
+        self.bias_update_alpha = 0.05     # Tuning parameter (smaller => slower update)
+        self.bias_angular_threshold = 0.1 # Only update bias when angular speed is low (rad/s)
+
         # ----- MPPI Setup -----
         self.cfg = Config(
             T=1.0,            # Horizon length in seconds
@@ -76,21 +80,21 @@ class MPPIControllerNode(object):
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 5,
+            'num_opt': 7,
             'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
                 19550, 19550, 24840,
-                10, 10, 10,
+                1, 1, 1,
                 25500, 25500, 25500,
                 1, 1, 1,
-                1, 100, 1, 100, 50
+                1, 100, 1, 100, 200
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
         self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.01  # Small integral gain (tune this!)
+        self.I_gain_z = 0.05  # Small integral gain (tune this!)
 
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
@@ -127,8 +131,8 @@ class MPPIControllerNode(object):
 
         # Deadband
         self.MPPI_mode = np.array(['ON', 'ON', 'ON'], dtype='<U3')
-        self.r_on = np.array([0.09, 0.09, 0.09])
-        self.r_off = np.array([0.05, 0.05, 0.05])
+        self.r_on = np.array([0.05, 0.05, 0.05])
+        self.r_off = np.array([0.02, 0.02, 0.02])
 
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
@@ -214,17 +218,27 @@ class MPPIControllerNode(object):
 
         # Orientation (Euler angles) from quaternion
         quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-        euler = euler_from_quaternion(quaternion)
-        # self.current_state[6:9] = euler
-        self.current_state[6:9] = [0, 0, 0]
+        measured_euler = np.array(euler_from_quaternion(quaternion))
+        
+        # --- Bias Estimation ---
+        # Update the bias estimate only when the drone is not rotating too quickly.
+        angular_vel = np.array([twist.angular.x, twist.angular.y, twist.angular.z])
+        if np.linalg.norm(angular_vel) < self.bias_angular_threshold:
+            # Update the bias estimate with a simple exponential moving average.
+            self.bias_estimate = (1 - self.bias_update_alpha) * self.bias_estimate + self.bias_update_alpha * measured_euler
+            rospy.logdebug("Updated bias estimate: %s", self.bias_estimate)
+        
+        # Compensate the measured attitude by subtracting the bias estimate.
+        corrected_attitude = measured_euler - self.bias_estimate
+        self.current_state[6:9] = corrected_attitude
 
-        # Angular velocities
+        # Angular velocities (remain as measured)
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
 
+        # Update integral error for z tracking
         z_error = self.mppi_controller.params['xgoal'][2] - self.current_state[2]  # z_target - z_current
         self.integral_error_z += z_error * self.cfg.dt  # Discrete integration
         self.integral_error_z = np.clip(self.integral_error_z, -0.1, 0.1)  # Tune the range
-
 
     def run_mppi(self):
         """
@@ -263,34 +277,16 @@ class MPPIControllerNode(object):
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
 
-
-        # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
-        
-        
-        # Zero-out the angular velocity components for the target
-        # next_state[6:] = np.zeros(6)
-
-        # Periodically update the internal state by blending it with the current state:
-        
-        # alpha = 0.1  # Adjust this parameter as needed
-        # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
-
         next_state_filtered = self.lpf.filter(next_state)
         next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
         next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
 
-
     def dynamics_update(self, state, control_inputs, dt):
         """
         A simple RK4 integration for the hexarotor dynamics.
         """
-        # k1 = dynamics_update_sim(state, control_inputs, dt)
-        # k2 = dynamics_update_sim(state + k1 / 2, control_inputs, dt) 
-        # k3 = dynamics_update_sim(state + k2 / 2, control_inputs, dt)
-        # k4 = dynamics_update_sim(state + k3, control_inputs, dt)
-        
         k1 = self.hex_dynamics(state, control_inputs) * dt
         k2 = self.hex_dynamics(state + k1 / 2, control_inputs) * dt 
         k3 = self.hex_dynamics(state + k2 / 2, control_inputs) * dt
@@ -310,21 +306,13 @@ class MPPIControllerNode(object):
         # Update per-dimension ON/OFF state
         for i in range(3):  # i=0->x,1->y,2->z
             if self.MPPI_mode[i] == 'OFF':
-                # Currently OFF => we only switch ON if we exceed r_on
                 if abs(curr[i] - xgoal[i]) > self.r_on[i]:
                     self.MPPI_mode[i] = 'ON'
             elif self.MPPI_mode[i] == 'ON':
-                # Currently ON => we switch OFF if we go below r_off
                 if abs(curr[i] - xgoal[i]) < self.r_off[i]:
                     self.MPPI_mode[i] = 'OFF'
 
-        # Build the final target state dimension by dimension
-        #    If OFF => lock dimension to xgoal, otherwise use next_.
         final_target = np.copy(next_)
-        # for i in range(3):
-        #     if self.MPPI_mode[i] == 'OFF':
-        #         final_target[i] = xgoal[i]
-        
 
         target_msg = PoseStamped()
         target_msg.header.stamp = rospy.Time.now()
@@ -336,14 +324,11 @@ class MPPIControllerNode(object):
         target_msg.pose.orientation.z = final_target[8]
         target_msg.pose.orientation.w = 1.0
         self.target_pub.publish(target_msg)
-
-
         self.target_pub_debug.publish(target_msg)
 
     def spin(self):
         rate = rospy.Rate(self.mppi_rate_hz)
         while not rospy.is_shutdown():
-            
             self.run_mppi()
             self.forward_simulate_for_mpc_target()
             self.publish_mpc_target()

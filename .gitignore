@@ -1,0 +1,12 @@
+# Ignore all JSON files
+*.json
+
+# Ignore Python __pycache__ directories
+__pycache__/
+
+# Ignore Python compiled files
+*.pyc
+
+# Ignore the c_generated_code directory
+c_generated_code/
+

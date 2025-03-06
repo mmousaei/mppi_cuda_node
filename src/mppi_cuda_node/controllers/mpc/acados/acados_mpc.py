@@ -84,9 +84,9 @@ class MPC:
         pz_dot = vz
 
         # -- Velocity derivatives (with gravity projection via Euler angles)
-        vx_dot = (Fx / mass) - g * (cs.cos(phi)*cs.sin(theta)*cs.cos(psi) + cs.sin(phi)*cs.sin(psi))
-        vy_dot = (Fy / mass) - g * (cs.cos(phi)*cs.sin(theta)*cs.sin(psi) - cs.sin(phi)*cs.cos(psi))
-        vz_dot = (Fz / mass) - g * (cs.cos(phi)*cs.cos(theta))
+        vx_dot = (Fx / mass) - g * cs.sin(theta)
+        vy_dot = (Fy / mass) + g * cs.sin(phi) * cs.cos(theta)
+        vz_dot = (Fz / mass) - g * cs.cos(phi) * cs.cos(theta)
 
         # -- Euler angle kinematics
         phi_dot = p_ + q_ * cs.sin(phi)*cs.tan(theta) + r_ * cs.cos(phi)*cs.tan(theta)
@@ -149,7 +149,7 @@ class MPC:
         Q = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos']*25,    # pz
+            params['tracking_weight_pos'],    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
@@ -165,15 +165,15 @@ class MPC:
             params['control_weight'],  # Fx
             params['control_weight'],  # Fy
             params['control_weight'],  # Fz
-            params['control_weight']*10,  # tau_x
-            params['control_weight']*10,  # tau_y
-            params['control_weight']*10   # tau_z
+            params['control_weight']*20,  # tau_x
+            params['control_weight']*20,  # tau_y
+            params['control_weight']*20   # tau_z
         ])
         
         Q_terminal = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos']*25,    # pz
+            params['tracking_weight_pos'],    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
@@ -254,8 +254,8 @@ class MPC:
         mass = self.params["mass"]
         g    = self.params["gravity"]
         phi, theta, psi = target_state[6], target_state[7], target_state[8]
-        Fx_nom = -mass * g * np.sin(theta)
-        Fy_nom =  mass * g * np.sin(phi) * np.cos(theta)
+        Fx_nom =  mass * g * np.sin(theta)
+        Fy_nom = -mass * g * np.sin(phi) * np.cos(theta)
         Fz_nom =  mass * g * np.cos(phi) * np.cos(theta)
         nominal_hover = np.array([Fx_nom, Fy_nom, Fz_nom, 0.0, 0.0, 0.0])
         yref = np.concatenate([target_state, nominal_hover])
@@ -267,7 +267,6 @@ class MPC:
 
         # **Update the terminal cost reference**:
         self.ocp_solver.set(self.horizon, "yref", target_state)  # Last state should track final state
-
         # Solve the OCP
         status = self.ocp_solver.solve()
         if status != 0:
@@ -301,7 +300,7 @@ def simulate_hexarotor_dynamics(params, mpc,
     f_expl = mpc.model.f_expl_expr
     f_func = cs.Function('f_func', [x_sym, u_sym], [f_expl])
 
-    dt = params['dt'] / 100
+    dt = params['dt'] 
     state = initial_state.copy()
     state_history = [state]
     control_history = []
@@ -313,7 +312,7 @@ def simulate_hexarotor_dynamics(params, mpc,
 
     for _ in range(steps):
         # Get control from MPC
-        u_opt = mpc.compute_control(state, target_state, init_guess_u, 0.02)
+        u_opt = mpc.compute_control(state, target_state, init_guess_u, dt)
         control_history.append(u_opt)
 
         # Euler integration
@@ -329,16 +328,18 @@ def main():
     params = {
         'inertia': [0.115125971, 0.116524229, 0.230387752],
         'mass': 7.00,
+        'horizon': 30,
         'gravity': 9.81,
-        'max_force': 20.0,
-        'max_torque': 0.05,
-        'control_weight': 0.005,
-        'tracking_weight_pos': 10,
-        'tracking_weight_vel': 3,
-        'tracking_weight_att': 80,
-        'tracking_weight_ang_vel': 50,
-        'smoothness_weight': 0.01,
-        'dt': 0.3
+        'max_force': 10.0,
+        'max_torque': 10.0,
+        'control_weight': 0.02,
+        'tracking_weight_pos': 100,
+        'tracking_weight_vel': 0.1,
+        'tracking_weight_att': 500,
+        'tracking_weight_ang_vel': 0.03,
+        'terminal_weight': 0.0,
+        'smoothness_weight': 0.05,
+        'dt': 0.01
     }
 
     # Build the MPC
@@ -347,14 +348,14 @@ def main():
     # Initial and target states
     initial_state = np.zeros(12)
     target_state  = np.array([
-        1.0, -1.0, 2.0,  # px, py, pz
+        0.0, 0.0, 0.8,  # px, py, pz
         0.0, 0.0, 0.0,  # vx, vy, vz
-        0.0, 0.0, 0.0,  # phi, theta, psi
+        0.1, 0.0, 0.0,  # phi, theta, psi
         0.0, 0.0, 0.0   # p, q, r
     ])
 
     # Run closed-loop simulation for 500 steps
-    steps = 5000
+    steps = 10000
 
     state_traj, control_traj = simulate_hexarotor_dynamics(
         params, mpc,

@@ -149,7 +149,6 @@ ACADOS_SYMBOL_EXPORT int tube_hexarotor_model_acados_update_params_sparse(tube_h
 ACADOS_SYMBOL_EXPORT int tube_hexarotor_model_acados_set_p_global_and_precompute_dependencies(tube_hexarotor_model_solver_capsule* capsule, double* data, int data_len);
 
 ACADOS_SYMBOL_EXPORT int tube_hexarotor_model_acados_solve(tube_hexarotor_model_solver_capsule * capsule);
-ACADOS_SYMBOL_EXPORT int tube_hexarotor_model_acados_setup_qp_matrices_and_factorize(tube_hexarotor_model_solver_capsule* capsule);
 
 ACADOS_SYMBOL_EXPORT void tube_hexarotor_model_acados_batch_solve(tube_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch);
 

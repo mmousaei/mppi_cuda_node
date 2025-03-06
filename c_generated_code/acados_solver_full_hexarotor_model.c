@@ -466,22 +466,22 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_0[0+(NY0) * 0] = 100;
     W_0[1+(NY0) * 1] = 100;
-    W_0[2+(NY0) * 2] = 2500;
-    W_0[3+(NY0) * 3] = 3;
-    W_0[4+(NY0) * 4] = 3;
-    W_0[5+(NY0) * 5] = 3;
-    W_0[6+(NY0) * 6] = 100;
-    W_0[7+(NY0) * 7] = 100;
-    W_0[8+(NY0) * 8] = 100;
-    W_0[9+(NY0) * 9] = 4;
-    W_0[10+(NY0) * 10] = 4;
-    W_0[11+(NY0) * 11] = 4;
+    W_0[2+(NY0) * 2] = 100;
+    W_0[3+(NY0) * 3] = 10;
+    W_0[4+(NY0) * 4] = 10;
+    W_0[5+(NY0) * 5] = 10;
+    W_0[6+(NY0) * 6] = 50;
+    W_0[7+(NY0) * 7] = 50;
+    W_0[8+(NY0) * 8] = 50;
+    W_0[9+(NY0) * 9] = 1;
+    W_0[10+(NY0) * 10] = 1;
+    W_0[11+(NY0) * 11] = 1;
     W_0[12+(NY0) * 12] = 0.4;
     W_0[13+(NY0) * 13] = 0.4;
     W_0[14+(NY0) * 14] = 0.4;
-    W_0[15+(NY0) * 15] = 4;
-    W_0[16+(NY0) * 16] = 4;
-    W_0[17+(NY0) * 17] = 4;
+    W_0[15+(NY0) * 15] = 8;
+    W_0[16+(NY0) * 16] = 8;
+    W_0[17+(NY0) * 17] = 8;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* Vx_0 = calloc(NY0*NX, sizeof(double));
@@ -522,22 +522,22 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W[0+(NY) * 0] = 100;
     W[1+(NY) * 1] = 100;
-    W[2+(NY) * 2] = 2500;
-    W[3+(NY) * 3] = 3;
-    W[4+(NY) * 4] = 3;
-    W[5+(NY) * 5] = 3;
-    W[6+(NY) * 6] = 100;
-    W[7+(NY) * 7] = 100;
-    W[8+(NY) * 8] = 100;
-    W[9+(NY) * 9] = 4;
-    W[10+(NY) * 10] = 4;
-    W[11+(NY) * 11] = 4;
+    W[2+(NY) * 2] = 100;
+    W[3+(NY) * 3] = 10;
+    W[4+(NY) * 4] = 10;
+    W[5+(NY) * 5] = 10;
+    W[6+(NY) * 6] = 50;
+    W[7+(NY) * 7] = 50;
+    W[8+(NY) * 8] = 50;
+    W[9+(NY) * 9] = 1;
+    W[10+(NY) * 10] = 1;
+    W[11+(NY) * 11] = 1;
     W[12+(NY) * 12] = 0.4;
     W[13+(NY) * 13] = 0.4;
     W[14+(NY) * 14] = 0.4;
-    W[15+(NY) * 15] = 4;
-    W[16+(NY) * 16] = 4;
-    W[17+(NY) * 17] = 4;
+    W[15+(NY) * 15] = 8;
+    W[16+(NY) * 16] = 8;
+    W[17+(NY) * 17] = 8;
 
     for (int i = 1; i < N; i++)
     {
@@ -586,18 +586,18 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
 
     double* W_e = calloc(NYN*NYN, sizeof(double));
     // change only the non-zero elements:
-    W_e[0+(NYN) * 0] = 10;
-    W_e[1+(NYN) * 1] = 10;
-    W_e[2+(NYN) * 2] = 250;
-    W_e[3+(NYN) * 3] = 0.30000000000000004;
-    W_e[4+(NYN) * 4] = 0.30000000000000004;
-    W_e[5+(NYN) * 5] = 0.30000000000000004;
-    W_e[6+(NYN) * 6] = 5;
-    W_e[7+(NYN) * 7] = 5;
-    W_e[8+(NYN) * 8] = 5;
-    W_e[9+(NYN) * 9] = 0.4;
-    W_e[10+(NYN) * 10] = 0.4;
-    W_e[11+(NYN) * 11] = 0.4;
+    W_e[0+(NYN) * 0] = 3000;
+    W_e[1+(NYN) * 1] = 3000;
+    W_e[2+(NYN) * 2] = 3000;
+    W_e[3+(NYN) * 3] = 300;
+    W_e[4+(NYN) * 4] = 300;
+    W_e[5+(NYN) * 5] = 300;
+    W_e[6+(NYN) * 6] = 750;
+    W_e[7+(NYN) * 7] = 750;
+    W_e[8+(NYN) * 8] = 750;
+    W_e[9+(NYN) * 9] = 30;
+    W_e[10+(NYN) * 10] = 30;
+    W_e[11+(NYN) * 11] = 30;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, N, "W", W_e);
     free(W_e);
     double* Vx_e = calloc(NYN*NX, sizeof(double));
@@ -765,9 +765,6 @@ static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_sol
     int with_value_sens_wrt_params = false;
     ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "with_value_sens_wrt_params", &with_value_sens_wrt_params);
 
-    double solution_sens_qp_t_lam_min = 0.000000001;
-    ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "solution_sens_qp_t_lam_min", &solution_sens_qp_t_lam_min);
-
     int globalization_full_step_dual = 0;
     ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "globalization_full_step_dual", &globalization_full_step_dual);
 
@@ -813,11 +810,6 @@ static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_sol
     ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "store_iterates", &store_iterates);
     // set HPIPM mode: should be done before setting other QP solver options
     ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "qp_hpipm_mode", "BALANCE");
-
-
-
-    int qp_solver_t0_init = 2;
-    ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "qp_t0_init", &qp_solver_t0_init);
 
 
 
@@ -1015,8 +1007,7 @@ int full_hexarotor_model_acados_update_params_sparse(full_hexarotor_model_solver
 int full_hexarotor_model_acados_set_p_global_and_precompute_dependencies(full_hexarotor_model_solver_capsule* capsule, double* data, int data_len)
 {
 
-    printf("No global_data, full_hexarotor_model_acados_set_p_global_and_precompute_dependencies does nothing.\n");
-    return 0;
+    printf("p_global is not defined, full_hexarotor_model_acados_set_p_global_and_precompute_dependencies does nothing.\n");
 }
 
 
@@ -1031,35 +1022,12 @@ int full_hexarotor_model_acados_solve(full_hexarotor_model_solver_capsule* capsu
 }
 
 
-
-int full_hexarotor_model_acados_setup_qp_matrices_and_factorize(full_hexarotor_model_solver_capsule* capsule)
-{
-    int solver_status = ocp_nlp_setup_qp_matrices_and_factorize(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
-
-    return solver_status;
-}
-
-
-
 void full_hexarotor_model_acados_batch_solve(full_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch)
 {
 
     for (int i = 0; i < N_batch; i++)
     {
         status_out[i] = ocp_nlp_solve(capsules[i]->nlp_solver, capsules[i]->nlp_in, capsules[i]->nlp_out);
-    }
-
-
-    return;
-}
-
-
-void full_hexarotor_model_acados_batch_setup_qp_matrices_and_factorize(full_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch)
-{
-
-    for (int i = 0; i < N_batch; i++)
-    {
-        status_out[i] = ocp_nlp_setup_qp_matrices_and_factorize(capsules[i]->nlp_solver, capsules[i]->nlp_in, capsules[i]->nlp_out);
     }
 
 

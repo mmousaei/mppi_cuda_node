@@ -1,7 +1,7 @@
 {
-    "acados_include_path": "/root/acados/include",
-    "acados_lib_path": "/root/acados/lib",
-    "code_export_directory": "/root/aerial_manipulation_ws/src/mppi_cuda_node/c_generated_code",
+    "acados_include_path": "/home/dream_reaper/acados/include",
+    "acados_lib_path": "/home/dream_reaper/acados/lib",
+    "code_export_directory": "/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/c_generated_code",
     "constraints": {
         "C": [],
         "C_e": [],
@@ -1742,7 +1742,7 @@
         "zu_e": []
     },
     "cython_include_dirs": [
-        "/usr/local/lib/python3.8/dist-packages/numpy/core/include",
+        "/home/dream_reaper/.local/lib/python3.8/site-packages/numpy/core/include",
         "/usr/include/python3.8"
     ],
     "dims": {
@@ -1887,7 +1887,6 @@
         "exact_hess_dyn": 1,
         "ext_cost_num_hess": 0,
         "ext_fun_compile_flags": "-O2",
-        "ext_fun_expand": false,
         "fixed_hess": 0,
         "globalization": "FIXED_STEP",
         "globalization_alpha_min": 0.05,
@@ -1919,7 +1918,6 @@
         "nlp_solver_tol_stat": 1e-06,
         "nlp_solver_type": "SQP_RTI",
         "nlp_solver_warm_start_first_qp": false,
-        "nlp_solver_warm_start_first_qp_from_nlp": false,
         "num_threads_in_batch_solve": 1,
         "print_level": 0,
         "qp_solver": "FULL_CONDENSING_HPIPM",
@@ -1929,7 +1927,6 @@
         "qp_solver_iter_max": 50,
         "qp_solver_mu0": 0.0,
         "qp_solver_ric_alg": 1,
-        "qp_solver_t0_init": 2,
         "qp_solver_tol_comp": null,
         "qp_solver_tol_eq": null,
         "qp_solver_tol_ineq": null,
@@ -1970,9 +1967,7 @@
             1,
             1
         ],
-        "solution_sens_qp_t_lam_min": 1e-09,
         "store_iterates": false,
-        "tau_min": 0.0,
         "tf": 1.0,
         "time_steps": [
             0.2,

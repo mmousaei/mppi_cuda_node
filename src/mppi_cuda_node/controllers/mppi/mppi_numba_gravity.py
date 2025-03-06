@@ -209,8 +209,12 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   x[1] += dt*x[4]
   x[2] += dt*x[5]
 
-  x[3] += dt*((1/mass) * fx_total - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
-  x[4] += dt*((1/mass) * fy_total - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
+  # x[3] += dt*((1/mass) * fx_total - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
+  # x[4] += dt*((1/mass) * fy_total - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
+  # x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
+
+  x[3] += dt*((1/mass) * fx_total - g * sin_theta)
+  x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
   x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
 
   x[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
