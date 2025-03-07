@@ -101,9 +101,13 @@ def dynamics_update_sim(x, u, dt):
   x_next[1] += dt * x[4]
   x_next[2] += dt * x[5]
   
-  x_next[3] += dt * ((1/mass) * u[0] - g * (np.cos(x[6]) * np.sin(x[7]) * np.cos(x[8]) + np.sin(x[6]) * np.sin(x[8])) )
-  x_next[4] += dt * ((1/mass) * u[1] - g * (np.cos(x[6]) * np.sin(x[7]) * np.sin(x[8]) - np.sin(x[6]) * np.cos(x[8])) )
+  x_next[3] += dt * ((1/mass) * u[0] - g * (np.sin(x[7])))
+  x_next[4] += dt * ((1/mass) * u[1] + g * (np.sin(x[6]) * np.cos(x[7])) )
   x_next[5] += dt * ((1/mass) * u[2] - g * (np.cos(x[6]) * np.cos(x[7])) )
+
+  x[3] += dt*((1/mass) * fx_total - g * sin_theta)
+  x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
+  x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
 
   x_next[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
   x_next[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
@@ -897,26 +901,26 @@ if __name__ == "__main__":
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
-    # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    xgoal = np.array([1,-1, 2, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     
     mppi_params = {
             'dt': cfg.dt,
             'x0': x0,
             'xgoal': xgoal,
             'goal_tolerance': 0.001,
-            'dist_weight': 2000,
+            'dist_weight': 100,
             'lambda_weight': 10,
             'num_opt': 5,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'u_std': np.array([1.5, 1.5, 1.5, 0.05, 0.05, 0.05]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 24840,
+                250, 250, 50,
                 1, 1, 1,
-                25500, 25500, 25500,
+                1000, 1000, 300,
                 1, 1, 1,
-                1, 100, 1, 100, 2000
+                0.3, 3, 0.3, 3, 30
             ]),
             "inertia_mass": np.array([0.21, 0.21, 0.4, 6.15])
         }

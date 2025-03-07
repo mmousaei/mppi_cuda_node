@@ -74,18 +74,18 @@ class MPPIControllerNode(object):
             # Default goal (can be updated via an external command if desired)
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'goal_tolerance': 0.001,
-            'dist_weight': 2000,
+            'dist_weight': 100,
             'lambda_weight': 10,
-            'num_opt': 5,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'num_opt': 9,
+            'u_std': np.array([1.5, 1.5, 1.5, 0.01, 0.01, 0.01]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 24840,
-                10, 10, 10,
-                25500, 25500, 25500,
+                250, 250, 250,
                 1, 1, 1,
-                1, 100, 1, 100, 50
+                1000, 1000, 300,
+                1, 1, 1,
+                0.3, 3, 0.3, 3, 30
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
@@ -215,8 +215,7 @@ class MPPIControllerNode(object):
         # Orientation (Euler angles) from quaternion
         quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
         euler = euler_from_quaternion(quaternion)
-        # self.current_state[6:9] = euler
-        self.current_state[6:9] = [0, 0, 0]
+        self.current_state[6:9] = euler
 
         # Angular velocities
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
@@ -276,7 +275,7 @@ class MPPIControllerNode(object):
         # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
 
         next_state_filtered = self.lpf.filter(next_state)
-        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
+        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.2, 0.2)
         next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered

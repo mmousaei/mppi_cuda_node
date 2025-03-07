@@ -1,7 +1,7 @@
 {
-    "acados_include_path": "/root/acados/include",
-    "acados_lib_path": "/root/acados/lib",
-    "code_export_directory": "/root/aerial_manipulation_ws/src/mppi_cuda_node/src/mppi_cuda_node/controllers/mppi/c_generated_code",
+    "acados_include_path": "/home/dream_reaper/acados/include",
+    "acados_lib_path": "/home/dream_reaper/acados/lib",
+    "code_export_directory": "/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/src/mppi_cuda_node/src/mppi_cuda_node/controllers/mppi/c_generated_code",
     "constraints": {
         "C": [],
         "C_e": [],
@@ -1163,7 +1163,7 @@
             [
                 0.0,
                 0.0,
-                1250.0,
+                50.0,
                 0.0,
                 0.0,
                 0.0,
@@ -1436,7 +1436,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0,
+                8.0,
                 0.0,
                 0.0
             ],
@@ -1457,7 +1457,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0,
+                8.0,
                 0.0
             ],
             [
@@ -1478,7 +1478,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0
+                8.0
             ]
         ],
         "W_0": [
@@ -1525,7 +1525,7 @@
             [
                 0.0,
                 0.0,
-                1250.0,
+                50.0,
                 0.0,
                 0.0,
                 0.0,
@@ -1798,7 +1798,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0,
+                8.0,
                 0.0,
                 0.0
             ],
@@ -1819,7 +1819,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0,
+                8.0,
                 0.0
             ],
             [
@@ -1840,7 +1840,7 @@
                 0.0,
                 0.0,
                 0.0,
-                4.0
+                8.0
             ]
         ],
         "W_e": [
@@ -1875,7 +1875,7 @@
             [
                 0.0,
                 0.0,
-                1250.0,
+                50.0,
                 0.0,
                 0.0,
                 0.0,
@@ -2093,7 +2093,7 @@
         "zu_e": []
     },
     "cython_include_dirs": [
-        "/usr/local/lib/python3.8/dist-packages/numpy/core/include",
+        "/home/dream_reaper/.local/lib/python3.8/site-packages/numpy/core/include",
         "/usr/include/python3.8"
     ],
     "dims": {
@@ -2186,8 +2186,8 @@
         "dyn_impl_dae_fun": null,
         "dyn_impl_dae_fun_jac": null,
         "dyn_impl_dae_jac": null,
-        "f_expl_expr": "@1=x[6], @2=x[7], @3=x[8], @4=x[9], @5=x[10], @6=x[11], vertcat(x[3], x[4], x[5], ((u[0]/7)-(9.81*(((cos(@1)*sin(@2))*cos(@3))+(sin(@1)*sin(@3))))), ((u[1]/7)-(9.81*(((cos(@1)*sin(@2))*sin(@3))-(sin(@1)*cos(@3))))), ((u[2]/7)-(9.81*(cos(@1)*cos(@2)))), ((@4+((@5*sin(@1))*tan(@2)))+((@6*cos(@1))*tan(@2))), ((@5*cos(@1))-(@6*sin(@1))), (((@5*sin(@1))/cos(@2))+((@6*cos(@1))/cos(@2))), (8.68614*(u[3]+((-0.113864*@5)*@6))), (8.58191*(u[4]+((0.115262*@4)*@6))), (4.34051*(u[5]+((-0.00139826*@4)*@5))))",
-        "f_impl_expr": "@1=x[6], @2=x[7], @3=x[8], @4=x[9], @5=x[10], @6=x[11], (xdot-vertcat(x[3], x[4], x[5], ((u[0]/7)-(9.81*(((cos(@1)*sin(@2))*cos(@3))+(sin(@1)*sin(@3))))), ((u[1]/7)-(9.81*(((cos(@1)*sin(@2))*sin(@3))-(sin(@1)*cos(@3))))), ((u[2]/7)-(9.81*(cos(@1)*cos(@2)))), ((@4+((@5*sin(@1))*tan(@2)))+((@6*cos(@1))*tan(@2))), ((@5*cos(@1))-(@6*sin(@1))), (((@5*sin(@1))/cos(@2))+((@6*cos(@1))/cos(@2))), (8.68614*(u[3]+((-0.113864*@5)*@6))), (8.58191*(u[4]+((0.115262*@4)*@6))), (4.34051*(u[5]+((-0.00139826*@4)*@5)))))",
+        "f_expl_expr": "@1=x[7], @2=x[6], @3=x[9], @4=x[10], @5=x[11], vertcat(x[3], x[4], x[5], ((u[0]/7)-(9.81*sin(@1))), ((u[1]/7)+((9.81*sin(@2))*cos(@1))), ((u[2]/7)-((9.81*cos(@2))*cos(@1))), ((@3+((@4*sin(@2))*tan(@1)))+((@5*cos(@2))*tan(@1))), ((@4*cos(@2))-(@5*sin(@2))), (((@4*sin(@2))/cos(@1))+((@5*cos(@2))/cos(@1))), (8.68614*(u[3]+((-0.113864*@4)*@5))), (8.58191*(u[4]+((0.115262*@3)*@5))), (4.34051*(u[5]+((-0.00139826*@3)*@4))))",
+        "f_impl_expr": "@1=x[7], @2=x[6], @3=x[9], @4=x[10], @5=x[11], (xdot-vertcat(x[3], x[4], x[5], ((u[0]/7)-(9.81*sin(@1))), ((u[1]/7)+((9.81*sin(@2))*cos(@1))), ((u[2]/7)-((9.81*cos(@2))*cos(@1))), ((@3+((@4*sin(@2))*tan(@1)))+((@5*cos(@2))*tan(@1))), ((@4*cos(@2))-(@5*sin(@2))), (((@4*sin(@2))/cos(@1))+((@5*cos(@2))/cos(@1))), (8.68614*(u[3]+((-0.113864*@4)*@5))), (8.58191*(u[4]+((0.115262*@3)*@5))), (4.34051*(u[5]+((-0.00139826*@3)*@4)))))",
         "gnsf_nontrivial_f_LO": 1,
         "gnsf_purely_linear": 0,
         "name": "full_hexarotor_model",
@@ -2263,7 +2263,6 @@
         "exact_hess_dyn": 1,
         "ext_cost_num_hess": 0,
         "ext_fun_compile_flags": "-O2",
-        "ext_fun_expand": false,
         "fixed_hess": 0,
         "globalization": "FIXED_STEP",
         "globalization_alpha_min": 0.05,
@@ -2295,7 +2294,6 @@
         "nlp_solver_tol_stat": 1e-06,
         "nlp_solver_type": "SQP_RTI",
         "nlp_solver_warm_start_first_qp": false,
-        "nlp_solver_warm_start_first_qp_from_nlp": false,
         "num_threads_in_batch_solve": 1,
         "print_level": 0,
         "qp_solver": "FULL_CONDENSING_HPIPM",
@@ -2305,7 +2303,6 @@
         "qp_solver_iter_max": 50,
         "qp_solver_mu0": 0.0,
         "qp_solver_ric_alg": 1,
-        "qp_solver_t0_init": 2,
         "qp_solver_tol_comp": null,
         "qp_solver_tol_eq": null,
         "qp_solver_tol_ineq": null,
@@ -2446,9 +2443,7 @@
             1,
             1
         ],
-        "solution_sens_qp_t_lam_min": 1e-09,
         "store_iterates": false,
-        "tau_min": 0.0,
         "tf": 0.3,
         "time_steps": [
             0.01,

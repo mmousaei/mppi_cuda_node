@@ -466,7 +466,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_0[0+(NY0) * 0] = 50;
     W_0[1+(NY0) * 1] = 50;
-    W_0[2+(NY0) * 2] = 1250;
+    W_0[2+(NY0) * 2] = 50;
     W_0[3+(NY0) * 3] = 3;
     W_0[4+(NY0) * 4] = 3;
     W_0[5+(NY0) * 5] = 3;
@@ -479,9 +479,9 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W_0[12+(NY0) * 12] = 0.4;
     W_0[13+(NY0) * 13] = 0.4;
     W_0[14+(NY0) * 14] = 0.4;
-    W_0[15+(NY0) * 15] = 4;
-    W_0[16+(NY0) * 16] = 4;
-    W_0[17+(NY0) * 17] = 4;
+    W_0[15+(NY0) * 15] = 8;
+    W_0[16+(NY0) * 16] = 8;
+    W_0[17+(NY0) * 17] = 8;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* Vx_0 = calloc(NY0*NX, sizeof(double));
@@ -522,7 +522,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W[0+(NY) * 0] = 50;
     W[1+(NY) * 1] = 50;
-    W[2+(NY) * 2] = 1250;
+    W[2+(NY) * 2] = 50;
     W[3+(NY) * 3] = 3;
     W[4+(NY) * 4] = 3;
     W[5+(NY) * 5] = 3;
@@ -535,9 +535,9 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W[12+(NY) * 12] = 0.4;
     W[13+(NY) * 13] = 0.4;
     W[14+(NY) * 14] = 0.4;
-    W[15+(NY) * 15] = 4;
-    W[16+(NY) * 16] = 4;
-    W[17+(NY) * 17] = 4;
+    W[15+(NY) * 15] = 8;
+    W[16+(NY) * 16] = 8;
+    W[17+(NY) * 17] = 8;
 
     for (int i = 1; i < N; i++)
     {
@@ -588,7 +588,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_e[0+(NYN) * 0] = 50;
     W_e[1+(NYN) * 1] = 50;
-    W_e[2+(NYN) * 2] = 1250;
+    W_e[2+(NYN) * 2] = 50;
     W_e[3+(NYN) * 3] = 3;
     W_e[4+(NYN) * 4] = 3;
     W_e[5+(NYN) * 5] = 3;
@@ -765,9 +765,6 @@ static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_sol
     int with_value_sens_wrt_params = false;
     ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "with_value_sens_wrt_params", &with_value_sens_wrt_params);
 
-    double solution_sens_qp_t_lam_min = 0.000000001;
-    ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "solution_sens_qp_t_lam_min", &solution_sens_qp_t_lam_min);
-
     int globalization_full_step_dual = 0;
     ocp_nlp_solver_opts_set(nlp_config, capsule->nlp_opts, "globalization_full_step_dual", &globalization_full_step_dual);
 
@@ -813,11 +810,6 @@ static void full_hexarotor_model_acados_create_set_opts(full_hexarotor_model_sol
     ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "store_iterates", &store_iterates);
     // set HPIPM mode: should be done before setting other QP solver options
     ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "qp_hpipm_mode", "BALANCE");
-
-
-
-    int qp_solver_t0_init = 2;
-    ocp_nlp_solver_opts_set(nlp_config, nlp_opts, "qp_t0_init", &qp_solver_t0_init);
 
 
 
@@ -1015,8 +1007,7 @@ int full_hexarotor_model_acados_update_params_sparse(full_hexarotor_model_solver
 int full_hexarotor_model_acados_set_p_global_and_precompute_dependencies(full_hexarotor_model_solver_capsule* capsule, double* data, int data_len)
 {
 
-    printf("No global_data, full_hexarotor_model_acados_set_p_global_and_precompute_dependencies does nothing.\n");
-    return 0;
+    printf("p_global is not defined, full_hexarotor_model_acados_set_p_global_and_precompute_dependencies does nothing.\n");
 }
 
 
@@ -1031,35 +1022,12 @@ int full_hexarotor_model_acados_solve(full_hexarotor_model_solver_capsule* capsu
 }
 
 
-
-int full_hexarotor_model_acados_setup_qp_matrices_and_factorize(full_hexarotor_model_solver_capsule* capsule)
-{
-    int solver_status = ocp_nlp_setup_qp_matrices_and_factorize(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
-
-    return solver_status;
-}
-
-
-
 void full_hexarotor_model_acados_batch_solve(full_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch)
 {
 
     for (int i = 0; i < N_batch; i++)
     {
         status_out[i] = ocp_nlp_solve(capsules[i]->nlp_solver, capsules[i]->nlp_in, capsules[i]->nlp_out);
-    }
-
-
-    return;
-}
-
-
-void full_hexarotor_model_acados_batch_setup_qp_matrices_and_factorize(full_hexarotor_model_solver_capsule ** capsules, int * status_out, int N_batch)
-{
-
-    for (int i = 0; i < N_batch; i++)
-    {
-        status_out[i] = ocp_nlp_setup_qp_matrices_and_factorize(capsules[i]->nlp_solver, capsules[i]->nlp_in, capsules[i]->nlp_out);
     }
 
 

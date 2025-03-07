@@ -55,7 +55,7 @@ class MPCControllerNode(object):
             'tracking_weight_pos': 50,
             'tracking_weight_vel': 1,
             'tracking_weight_att': 300,
-            'tracking_weight_ang_vel': 1,
+            'tracking_weight_ang_vel': 5,
             'terminal_weight': 5,
             'smoothness_weight': 0.05,
             'dt': 0.01
@@ -184,11 +184,35 @@ class MPCControllerNode(object):
         Normalize/scaling for MPC outputs (body rates and thrust).
         Adjust these gains to suit your vehicle.
         """
-        hover_thrust = 0.61
-        ctrl[0] = ctrl[0] * 0.022
-        ctrl[1] = ctrl[1] * 0.027
-        ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
-        ctrl[3:6] = ctrl[3:6] * 0.22
+        hover_thrust = 0.611
+        cos_phi = np.cos(self.current_state[6])
+        cos_theta = np.cos(self.current_state[7])
+        sin_phi = np.sin(self.current_state[6])
+        sin_theta = np.sin(self.current_state[7])
+
+        # Nominal lateral forces due to gravity:
+        F_x_nom = self.hex_mass * 9.81 * sin_theta
+        F_y_nom = -self.hex_mass * 9.81 * sin_phi * cos_theta
+
+        hover_thrust_x = -hover_thrust * sin_theta          * 2
+        hover_thrust_y = hover_thrust * sin_phi * cos_theta * 1.8
+        norm_factor_x = 0.02
+        norm_factor_y = 0.02
+        ctrl[0] = hover_thrust_x + norm_factor_x * (ctrl[0] - F_x_nom)
+        ctrl[1] = hover_thrust_y + norm_factor_y * (ctrl[1] - F_y_nom)
+        # ctrl[0] =  norm_factor_x * (ctrl[0] - F_x_nom)
+        # ctrl[1] =  norm_factor_y * (ctrl[1] - F_y_nom)
+
+        # Nominal force required in body-z (gravity compensation)
+        Fz_hover = self.hex_mass * 9.81 * cos_phi * cos_theta
+
+        # Adjust incremental gain with tilt: when level, factor is 0.006; when tilted, scale by 1/(cos_phi*cos_theta)
+        norm_factor_z = 0.05
+
+        # Now combine feedforward and incremental parts:
+        ctrl[2] = hover_thrust * cos_phi * cos_theta + norm_factor_z * (ctrl[2] - Fz_hover)
+        # ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
+        ctrl[3:6] = ctrl[3:6] * 0.24
         return ctrl
 
     def run_mpc(self):
