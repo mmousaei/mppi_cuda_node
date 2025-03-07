@@ -99,8 +99,8 @@ def dynamics_update_sim(x, u, dt):
   x_next[1] += dt * x[4]
   x_next[2] += dt * x[5]
   
-  x_next[3] += dt * ((1/mass) * u[0] + g * np.sin(x[7]))
-  x_next[4] += dt * ((1/mass) * u[1] - g * np.cos(x[7]) * np.sin(x[6]))
+  x_next[3] += dt * ((1/mass) * u[0] - g * np.sin(x[7]))
+  x_next[4] += dt * ((1/mass) * u[1] + g * np.cos(x[7]) * np.sin(x[6]))
   x_next[5] += dt * ((1/mass) * u[2] - g * np.cos(x[7]) * np.cos(x[6]))
 
   x_next[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
@@ -182,6 +182,7 @@ def dynamics_update(x, u, dt, contact_normal):
 
   mass = 2.57
   c = -300
+  g = 9.81
 
   fx_total = (u[0]) #+ (contact_force_x) - (c * (contact_velocity_x ) ) 
   fy_total = (u[1]) #+ (contact_force_y) - (c * (contact_velocity_y ) ) 
@@ -194,9 +195,9 @@ def dynamics_update(x, u, dt, contact_normal):
   x[1] += dt*x[4]
   x[2] += dt*x[5]
 
-  x[3] += dt*((1/mass) * fx_total)# + g * np.sin(x[7]))
-  x[4] += dt*((1/mass) * fy_total)# - g * np.cos(x[7]) * np.sin(x[6]))
-  x[5] += dt*((1/mass) * fz_total)# - g * np.cos(x[7]) * np.cos(x[6]))
+  x[3] += dt*((1/mass) * fx_total - g * np.sin(x[7]))
+  x[4] += dt*((1/mass) * fy_total + g * np.cos(x[7]) * np.sin(x[6]))
+  x[5] += dt*((1/mass) * fz_total - g * np.cos(x[7]) * np.cos(x[6]))
 
   x[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
   x[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
@@ -844,7 +845,7 @@ if __name__ == "__main__":
         num_opt=5, # Number of steps in each solve() function call.
 
         # Control and sample specification
-        u_std=np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01])*0.05, # Noise std for sampling linear and angular velocities.
+        u_std=np.array([1.0, 1.0, 1.0, 0.01, 0.01, 0.01]), # Noise std for sampling linear and angular velocities.
         vrange = np.array([-10.0, 10.0]), # Linear velocity range.
         wrange=np.array([-0.1, 0.1]), # Angular velocity range.
     )

@@ -89,8 +89,8 @@ def dynamics_update_sim(x, u, dt):
   x_next[1] += dt * x[4]
   x_next[2] += dt * x[5]
   
-  x_next[3] += dt * ((1/mass) * u[0] - g * (np.cos(x[6]) * np.sin(x[7]) * np.cos(x[8]) + np.sin(x[6]) * np.sin(x[8])) )
-  x_next[4] += dt * ((1/mass) * u[1] - g * (np.cos(x[6]) * np.sin(x[7]) * np.sin(x[8]) - np.sin(x[6]) * np.cos(x[8])) )
+  x_next[3] += dt * ((1/mass) * u[0] - g * (np.sin(x[7])))
+  x_next[4] += dt * ((1/mass) * u[1] + g * (np.sin(x[6]) * np.cos(x[7])) )
   x_next[5] += dt * ((1/mass) * u[2] - g * (np.cos(x[6]) * np.cos(x[7])) )
 
   x_next[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
@@ -182,9 +182,9 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   x[1] += dt*x[4]
   x[2] += dt*x[5]
 
-  x[3] += dt*((1/mass) * fx_total)# + 9.81 * np.sin(x[7]))
-  x[4] += dt*((1/mass) * fy_total)# - 9.81 * np.cos(x[7]) * np.sin(x[6]))
-  x[5] += dt*((1/mass) * fz_total)# - 9.81 * np.cos(x[7]) * np.cos(x[6]))
+  x[3] += dt*((1/mass) * fx_total - 9.81 * np.sin(x[7]))
+  x[4] += dt*((1/mass) * fy_total + 9.81 * np.cos(x[7]) * np.sin(x[6]))
+  x[5] += dt*((1/mass) * fz_total - 9.81 * np.cos(x[7]) * np.cos(x[6]))
 
   x[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
   x[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
@@ -793,9 +793,9 @@ class MPPI_Numba(object):
 if __name__ == "__main__":
     num_controls = 6
     num_states = 12
-    cfg = Config(T = 0.6,
-            dt = 0.02,
-            num_control_rollouts = 1024,#int(2e4), # Same as number of blocks, can be more than 1024
+    cfg = Config(T = 1,
+            dt = 0.3,
+            num_control_rollouts = 1024*8,#int(2e4), # Same as number of blocks, can be more than 1024
             num_controls = num_controls,
             num_states = num_states,
             num_vis_state_rollouts = 1,
@@ -826,13 +826,13 @@ if __name__ == "__main__":
         num_opt=5, # Number of steps in each solve() function call.
 
         # Control and sample specification
-        u_std=np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01])*0.05, # Noise std for sampling linear and angular velocities.
+        u_std=np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01])*0.05,# Noise std for sampling linear and angular velocities.
         vrange = np.array([-10.0, 10.0]), # Linear velocity range.
         wrange=np.array([-0.5, 0.5]), # Angular velocity range.
         
         
         # dt = 0.02 tuning parameters
-        weights = np.array([150, 150, 300, 15, 1500, 1500, 3000, 100, 1, 5, 5, 1, 100]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
+        weights = np.array([150, 150, 300, 1, 1500, 1500, 3000, 100, 0.1, 1, 0.1, 1, 30]), # w_pose_x, w_pose_y, w_pose_z, w_vel, w_att_roll, w_att_pitch, w_att_yaw, w_omega, w_cont, w_cont_m, w_cont_f, w_cont_M, w_terminal
         # weights = np.array([5200, 5200, 18200, 100, 100000, 100000, 1200000, 100, 20, 10, 10, 10, 50]),
         inertia_mass = np.array([0.115125971, 0.116524229, 0.230387752, 2.302499999999999]) # I_xx, I_yy, I_zz, mass
     )

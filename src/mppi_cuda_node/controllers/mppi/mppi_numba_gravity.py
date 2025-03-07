@@ -87,13 +87,19 @@ def dynamics_update_sim(x, u, dt):
   # I_xx = 0.23038337
   # I_yy = 0.11771596
   # I_zz = 0.11392979
-  I_xx = 0.115125971
-  I_yy = 0.116524229
-  I_zz = 0.230387752
+  I_xx = 0.21
+  I_yy = 0.21
+  I_zz = 0.4
 
-  mass = 7.00
+  mass = 6.15
   g = 9.81
 
+  sin_phi = math.sin(x[6])
+  cos_phi = math.cos(x[6])
+  sin_theta = math.sin(x[7])
+  cos_theta = math.cos(x[7])
+  sin_psi = math.sin(x[8])
+  cos_psi = math.cos(x[8])
   
   x_next = x.copy()
 
@@ -101,13 +107,12 @@ def dynamics_update_sim(x, u, dt):
   x_next[1] += dt * x[4]
   x_next[2] += dt * x[5]
   
-  x_next[3] += dt * ((1/mass) * u[0] - g * (np.sin(x[7])))
-  x_next[4] += dt * ((1/mass) * u[1] + g * (np.sin(x[6]) * np.cos(x[7])) )
-  x_next[5] += dt * ((1/mass) * u[2] - g * (np.cos(x[6]) * np.cos(x[7])) )
-
-  x[3] += dt*((1/mass) * fx_total - g * sin_theta)
-  x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
-  x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
+  # x_next[3] += dt * ((1/mass) * u[0] - g * (np.sin(x[7])))
+  # x_next[4] += dt * ((1/mass) * u[1] + g * (np.sin(x[6]) * np.cos(x[7])) )
+  # x_next[5] += dt * ((1/mass) * u[2] - g * (np.cos(x[6]) * np.cos(x[7])) )
+  x_next[3] += dt*((1/mass) * u[0] - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
+  x_next[4] += dt*((1/mass) * u[1] - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
+  x_next[5] += dt*((1/mass) * u[2] - g * cos_phi * cos_theta)
 
   x_next[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
   x_next[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
@@ -144,7 +149,7 @@ def calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_norm
 
   ABC_sq = math.sqrt(A**2 + B**2 + C**2)
   dist_from_contact_plane = ((A * ee_pose_x + B * ee_pose_y + C * ee_pose_z + D) / ABC_sq)
-  force_dot = u[0] * contact_normal[0] + u[1] * contact_normal[1] * u[2] * contact_normal[2]
+  force_dot = u[0] * contact_normal[0] + u[1] * contact_normal[1] + u[2] * contact_normal[2]
   contact_bitmask = dist_from_contact_plane < contact_threshold
   
   contact_force_x = (- force_dot / contact_normal_sq * contact_normal[0]) *  contact_bitmask
@@ -213,13 +218,12 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   x[1] += dt*x[4]
   x[2] += dt*x[5]
 
-  # x[3] += dt*((1/mass) * fx_total - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
-  # x[4] += dt*((1/mass) * fy_total - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
-  # x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
-
-  x[3] += dt*((1/mass) * fx_total - g * sin_theta)
-  x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
+  x[3] += dt*((1/mass) * fx_total - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
+  x[4] += dt*((1/mass) * fy_total - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
   x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
+  # x[3] += dt*((1/mass) * fx_total - g * sin_theta)
+  # x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
+  # x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
 
   x[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
   x[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
@@ -629,7 +633,7 @@ class MPPI_Numba(object):
     costs_d[bid] += cost_weights_d[16] * term_cost(dist_to_goal2, goal_reached)
     # Add Control cost 
     for t in range(timesteps):
-      costs_d[bid] += cost_weights_d[14]*lambda_weight_d*(
+      costs_d[bid] += cost_weights_d[14]*(
               (u_cur_d[t,0]/(u_std_d[0]**2))*noise_samples_d[bid, t,0] + (u_cur_d[t,1]/(u_std_d[1]**2))*noise_samples_d[bid, t, 1] + (u_cur_d[t,2]/(u_std_d[2]**2))*noise_samples_d[bid, t, 2]\
                  + cost_weights_d[15]*((u_cur_d[t,3]/(u_std_d[3]**2))*noise_samples_d[bid, t, 3] + (u_cur_d[t,4]/(u_std_d[4]**2))*noise_samples_d[bid, t, 4] + (u_cur_d[t,5]/(u_std_d[5]**2))*noise_samples_d[bid, t, 5]))
 
@@ -654,12 +658,13 @@ class MPPI_Numba(object):
     gap = int(math.ceil(numel / num_threads))
 
     # Find the minimum value via reduction
-    starti = min(tid*gap, numel)
-    endi = min(starti+gap, numel)
-    if starti<numel:
-      weights_d[starti] = costs_d[starti]
-    for i in range(starti, endi):
-      weights_d[starti] = min(weights_d[starti], costs_d[i])
+    starti = tid * gap
+    endi = min(starti + gap, numel)
+    if starti < numel:
+      local_min = costs_d[starti]
+      for i in range(starti + 1, endi):
+        local_min = min(local_min, costs_d[i])
+      weights_d[starti] = local_min
     cuda.syncthreads()
 
     s = gap
@@ -901,7 +906,8 @@ if __name__ == "__main__":
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
-    xgoal = np.array([1,-1, 2, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    # xgoal = np.array([1,-1, 2, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
+    xgoal = np.array([0,0, 1, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     
     mppi_params = {
@@ -912,13 +918,13 @@ if __name__ == "__main__":
             'dist_weight': 100,
             'lambda_weight': 10,
             'num_opt': 5,
-            'u_std': np.array([1.5, 1.5, 1.5, 0.05, 0.05, 0.05]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                250, 250, 50,
+                450, 450, 250,
                 1, 1, 1,
-                1000, 1000, 300,
+                2000, 2000, 900,
                 1, 1, 1,
                 0.3, 3, 0.3, 3, 30
             ]),

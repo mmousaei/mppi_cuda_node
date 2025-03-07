@@ -77,15 +77,15 @@ class MPPIControllerNode(object):
             'dist_weight': 100,
             'lambda_weight': 10,
             'num_opt': 9,
-            'u_std': np.array([1.5, 1.5, 1.5, 0.01, 0.01, 0.01]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                250, 250, 250,
-                1, 1, 1,
-                1000, 1000, 300,
-                1, 1, 1,
-                0.3, 3, 0.3, 3, 30
+                450, 450, 250,
+                400, 400, 400,
+                2000, 2000, 900,
+                100, 100, 100,
+                0.3, 3, 0.3, 3, 300
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
@@ -248,9 +248,9 @@ class MPPIControllerNode(object):
         """
         mppi_u = self.optimal_control_seq[0, :].copy()
         
-
+        forward_steps = max(int(self.mpc_horizon/self.cfg.dt), 1)
         if self.use_local_state:
-            forward_steps = max(int(self.mpc_horizon/self.cfg.dt), 1)
+            
             # forward_steps = 1
             for i in range(forward_steps):
                 mppi_u = self.optimal_control_seq[i, :].copy()
@@ -258,7 +258,10 @@ class MPPIControllerNode(object):
             next_state = self.mppi_state.copy()    
 
         else:
-            next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+            next_state = self.current_state.copy()
+            for i in range(forward_steps):
+                mppi_u = self.optimal_control_seq[i, :].copy()
+                next_state = self.dynamics_update(next_state.copy(), mppi_u, self.cfg.dt)
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
 
