@@ -51,12 +51,12 @@ class MPCControllerNode(object):
             'gravity': 9.81,
             'max_force': 10.0,
             'max_torque': 1.0,
-            'control_weight': 0.4,
-            'tracking_weight_pos': 100,
-            'tracking_weight_vel': 10,
-            'tracking_weight_att': 50,
+            'control_weight': 0.3,
+            'tracking_weight_pos': 50,
+            'tracking_weight_vel': 1,
+            'tracking_weight_att': 300,
             'tracking_weight_ang_vel': 1,
-            'terminal_weight': 30,
+            'terminal_weight': 5,
             'smoothness_weight': 0.05,
             'dt': 0.01
         }
@@ -188,7 +188,7 @@ class MPCControllerNode(object):
         ctrl[0] = ctrl[0] * 0.022
         ctrl[1] = ctrl[1] * 0.027
         ctrl[2] = ctrl[2] * hover_thrust / (self.hex_mass * 9.81)
-        ctrl[3:6] = ctrl[3:6] * 0.72
+        ctrl[3:6] = ctrl[3:6] * 0.22
         return ctrl
 
     def run_mpc(self):
