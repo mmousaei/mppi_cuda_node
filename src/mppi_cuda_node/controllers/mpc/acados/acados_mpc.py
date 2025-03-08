@@ -149,7 +149,7 @@ class MPC:
         Q = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos'],    # pz
+            params['tracking_weight_pos']/2,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
@@ -165,15 +165,15 @@ class MPC:
             params['control_weight'],  # Fx
             params['control_weight'],  # Fy
             params['control_weight'],  # Fz
-            params['control_weight']*20,  # tau_x
-            params['control_weight']*20,  # tau_y
-            params['control_weight']*20   # tau_z
+            params['control_weight']*40,  # tau_x
+            params['control_weight']*40,  # tau_y
+            params['control_weight']*40   # tau_z
         ])
         
         Q_terminal = np.diag([
             params['tracking_weight_pos'],    # px
             params['tracking_weight_pos'],    # py
-            params['tracking_weight_pos'],    # pz
+            params['tracking_weight_pos']/2,    # pz
             params['tracking_weight_vel'],    # vx
             params['tracking_weight_vel'],    # vy
             params['tracking_weight_vel'],    # vz
