@@ -54,7 +54,7 @@ class MPCControllerNode(object):
             'control_weight': 0.3,
             'tracking_weight_pos': 100,
             'tracking_weight_vel': 1,
-            'tracking_weight_att': 200,
+            'tracking_weight_att': 150,
             'tracking_weight_ang_vel': 5,
             'terminal_weight': 5,
             'smoothness_weight': 0.05,
@@ -174,17 +174,18 @@ class MPCControllerNode(object):
 
         # For simplicity, we zero the remaining state elements.
 
-        # self.mpc_target[3:] = 0.0
-        self.mpc_target[6] = data.pose.orientation.x
-        self.mpc_target[7] = data.pose.orientation.y
-        self.mpc_target[8] = data.pose.orientation.z
+        self.mpc_target[3:] = 0.0
+        # self.mpc_target[6] = data.pose.orientation.x
+        # self.mpc_target[7] = data.pose.orientation.y
+        # self.mpc_target[8] = data.pose.orientation.z
         
     def normalize_control_inputs_mpc(self, ctrl):
         """
         Normalize/scaling for MPC outputs (body rates and thrust).
         Adjust these gains to suit your vehicle.
         """
-        hover_thrust = 0.611
+        hover_thrust = 0.62
+        # hover_thrust = 0.58
         cos_phi = np.cos(self.current_state[6])
         cos_theta = np.cos(self.current_state[7])
         sin_phi = np.sin(self.current_state[6])
