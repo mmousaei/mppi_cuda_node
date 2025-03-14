@@ -85,12 +85,16 @@ class MPPIControllerNode(object):
                 400, 400, 400,
                 2000, 2000, 900,
                 100, 100, 100,
-                0.3, 3, 0.3, 3, 300
+                0.3, 3, 0.3, 3, 20
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
+        self.integral_error_x = 0.0  # Initialize integral error for z tracking
+        self.integral_error_y = 0.0  # Initialize integral error for z tracking
         self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.01  # Small integral gain (tune this!)
+        self.I_gain_x = 0.05  # Small integral gain (tune this!)
+        self.I_gain_y = 0.05  # Small integral gain (tune this!)
+        self.I_gain_z = 0.05  # Small integral gain (tune this!)
 
         self.mppi_controller.set_params(self.mppi_params)
         self.J = np.diag(self.mppi_params['inertia_mass'][:3])
@@ -127,7 +131,7 @@ class MPPIControllerNode(object):
 
         # Deadband
         self.MPPI_mode = np.array(['ON', 'ON', 'ON'], dtype='<U3')
-        self.r_on = np.array([0.09, 0.09, 0.09])
+        self.r_on = np.array([0.1, 0.1, 0.1])
         self.r_off = np.array([0.05, 0.05, 0.05])
 
     def initialize_hexarotor_parameters(self):
@@ -188,6 +192,8 @@ class MPPIControllerNode(object):
     def activate_callback(self, data):
         self.activate = data.data
         self.mppi_state = self.current_state
+        self.integral_error_x = 0.0
+        self.integral_error_y = 0.0
         self.integral_error_z = 0.0
 
     def target_callback(self, data):
@@ -220,8 +226,14 @@ class MPPIControllerNode(object):
         # Angular velocities
         self.current_state[9:] = [twist.angular.x, twist.angular.y, twist.angular.z]
 
+        x_error = self.mppi_controller.params['xgoal'][0] - self.current_state[0]  # z_target - z_current
+        y_error = self.mppi_controller.params['xgoal'][1] - self.current_state[1]  # z_target - z_current
         z_error = self.mppi_controller.params['xgoal'][2] - self.current_state[2]  # z_target - z_current
+        self.integral_error_x += x_error * self.cfg.dt  # Discrete integration
+        self.integral_error_y += y_error * self.cfg.dt  # Discrete integration
         self.integral_error_z += z_error * self.cfg.dt  # Discrete integration
+        self.integral_error_x = np.clip(self.integral_error_x, -0.1, 0.1)  # Tune the range
+        self.integral_error_y = np.clip(self.integral_error_y, -0.1, 0.1)  # Tune the range
         self.integral_error_z = np.clip(self.integral_error_z, -0.1, 0.1)  # Tune the range
 
 
@@ -278,8 +290,10 @@ class MPPIControllerNode(object):
         # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
 
         next_state_filtered = self.lpf.filter(next_state)
-        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.2, 0.2)
-        next_state_filtered[2] += self.I_gain_z * self.integral_error_z
+        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.4, 0.4)
+        # next_state_filtered[0] += self.I_gain_x * self.integral_error_x
+        # next_state_filtered[1] += self.I_gain_y * self.integral_error_y
+        # next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
 

@@ -836,12 +836,12 @@ class MPPI_Numba(object):
       #         scaled_std = u_std_d[i] * 1
       #         noise_samples_d[block_id, t, i] = scaled_std * xoroshiro128p_normal_float32(rng_states, abs_thread_id)
 
-      denom = 20
+      denom = 100
       for t in range(num_timesteps):
         for i in range(num_controls):
             # Linearly scaled standard deviation
-            # scale = 1.0 - ((t / num_timesteps * (denom - 1)) / denom)
-            scale = 1.0
+            scale = 1.0 - ((t / num_timesteps * (denom - 1)) / denom)
+            # scale = 1.0
             scaled_std = u_std_d[i] * scale
 
             # Generate noise with scaled variance

@@ -174,10 +174,10 @@ class MPCControllerNode(object):
 
         # For simplicity, we zero the remaining state elements.
 
-        self.mpc_target[3:] = 0.0
-        # self.mpc_target[6] = data.pose.orientation.x
-        # self.mpc_target[7] = data.pose.orientation.y
-        # self.mpc_target[8] = data.pose.orientation.z
+        # self.mpc_target[3:] = 0.0
+        self.mpc_target[6] = data.pose.orientation.x
+        self.mpc_target[7] = data.pose.orientation.y
+        self.mpc_target[8] = data.pose.orientation.z
         
     def normalize_control_inputs_mpc(self, ctrl):
         """
