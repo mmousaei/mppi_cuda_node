@@ -75,16 +75,16 @@ class MPPIControllerNode(object):
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'goal_tolerance': 0.001,
             'dist_weight': 100,
-            'lambda_weight': 10,
+            'lambda_weight': 60,
             'num_opt': 9,
             'u_std': np.array([0.5, 0.5, 0.5, 0.01, 0.01, 0.01]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                450, 450, 250,
+                950, 950, 450,
                 400, 400, 400,
                 2000, 2000, 900,
-                100, 100, 100,
+                200, 200, 100,
                 0.3, 3, 0.3, 3, 20
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
@@ -108,7 +108,7 @@ class MPPIControllerNode(object):
             self.optimal_control_seq[:, 2] = self.hex_mass * 9.81
 
         # Optional: a low-pass filter (if you wish to filter commands)
-        cutoff_freq = 10
+        cutoff_freq = 5
         sampling_rate = 1 / 0.02  # Based on a 50 Hz update rate
         b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
         self.lpf = OnlineLPF(b, a, self.cfg.num_states)
@@ -130,9 +130,16 @@ class MPPIControllerNode(object):
         # self.dyn_server = Server(MPPIParamsConfig, self.dynamic_reconfigure_callback)
 
         # Deadband
-        self.MPPI_mode = np.array(['ON', 'ON', 'ON'], dtype='<U3')
-        self.r_on = np.array([0.1, 0.1, 0.1])
-        self.r_off = np.array([0.05, 0.05, 0.05])
+        #   indices 0,1,2 for position (x,y,z) and 6,7,8 for attitude (roll, pitch, yaw)
+        self.deadband_indices = [0, 1, 2, 6, 7, 8]
+        self.MPPI_mode = np.array(['ON'] * 6, dtype='<U3')
+        # Deadband thresholds
+        self.r_on = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+        self.r_off = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
+        self.deadband_timer = np.zeros(6)
+        # Initialize with NaNs so we can detect the first cycle in deadband
+        self.deadband_initial_state = np.full(6, np.nan)
+        self.deadband_transition_duration = np.array([1]*3 + [2]*3)
 
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
@@ -302,10 +309,6 @@ class MPPIControllerNode(object):
         """
         A simple RK4 integration for the hexarotor dynamics.
         """
-        # k1 = dynamics_update_sim(state, control_inputs, dt)
-        # k2 = dynamics_update_sim(state + k1 / 2, control_inputs, dt) 
-        # k3 = dynamics_update_sim(state + k2 / 2, control_inputs, dt)
-        # k4 = dynamics_update_sim(state + k3, control_inputs, dt)
         
         k1 = self.hex_dynamics(state, control_inputs) * dt
         k2 = self.hex_dynamics(state + k1 / 2, control_inputs) * dt 
@@ -320,27 +323,41 @@ class MPPIControllerNode(object):
         (For simplicity, only position is set; orientation is left as a unit quaternion.)
         """
         xgoal = self.mppi_controller.params['xgoal']
-        curr  = self.current_state     
-        next_ = self.mpc_target        
+        curr  = self.current_state.copy()     
+        next_ = self.mpc_target.copy()      
+        print("MPPI MODE: " + str(self.MPPI_mode))
         
-        # Update per-dimension ON/OFF state
-        for i in range(3):  # i=0->x,1->y,2->z
-            if self.MPPI_mode[i] == 'OFF':
-                # Currently OFF => we only switch ON if we exceed r_on
-                if abs(curr[i] - xgoal[i]) > self.r_on[i]:
-                    self.MPPI_mode[i] = 'ON'
-            elif self.MPPI_mode[i] == 'ON':
-                # Currently ON => we switch OFF if we go below r_off
-                if abs(curr[i] - xgoal[i]) < self.r_off[i]:
-                    self.MPPI_mode[i] = 'OFF'
+        # Update per-dimension ON/OFF state for the 6 deadband dimensions
+        for j, idx in enumerate(self.deadband_indices):
+            if self.MPPI_mode[j] == 'OFF':
+                # If currently OFF, check if we should re-enable MPPI control
+                if abs(curr[idx] - xgoal[idx]) > self.r_on[j]:
+                    self.MPPI_mode[j] = 'ON'
+            elif self.MPPI_mode[j] == 'ON':
+                # If currently ON, switch OFF if error is small
+                if abs(curr[idx] - xgoal[idx]) < self.r_off[j]:
+                    self.MPPI_mode[j] = 'OFF'
 
-        # Build the final target state dimension by dimension
-        #    If OFF => lock dimension to xgoal, otherwise use next_.
+        # Initialize final_target with the current computed target
         final_target = np.copy(next_)
-        # for i in range(3):
-        #     if self.MPPI_mode[i] == 'OFF':
-        #         final_target[i] = xgoal[i]
         
+        # For each deadband dimension (positions and attitudes)
+        for j, idx in enumerate(self.deadband_indices):
+            if self.MPPI_mode[j] == 'ON':
+                # When MPPI is active, use the computed target.
+                final_target[idx] = next_[idx]
+                # Reset the deadband timer and initial state.
+                self.deadband_timer[j] = 0.0
+                self.deadband_initial_state[j] = next_[idx]
+            else:
+                # When MPPI is off, perform a quadratic ease-out transition toward the final goal.
+                if np.isnan(self.deadband_initial_state[j]):
+                    self.deadband_initial_state[j] = next_[idx]
+                self.deadband_timer[j] += self.cfg.dt
+                t = min(self.deadband_timer[j] / self.deadband_transition_duration[j], 1.0)
+                # Quadratic ease-out: starts fast and slows down toward the target.
+                weight = 1 - (1 - t)**2
+                final_target[idx] = (1 - weight) * self.deadband_initial_state[j] + weight * xgoal[idx]
 
         target_msg = PoseStamped()
         target_msg.header.stamp = rospy.Time.now()
