@@ -209,16 +209,15 @@ def calculate_contact_force_moment_naiive(x, u, A, B, C, D, contact_normal_sq, c
             v_normal,  # Normal velocity
             contact_moment_x, contact_moment_y, contact_moment_z)
 
-
 @cuda.jit(device=True, fastmath=True)
-def dynamics_update(x, u, dt, contact_normal, inertia_mass):
+def dynamics_update(x, u, dt, contact_normal, inertia_mass, cf_out):
   # The dynamics update for hexarotor
   contact_normal = (-1, 0, 0)
   contact_normal_sq = 1
   A = -1
   B = 0
   C = 0
-  D = 9.2
+  D = 1.3
   ABC_sq = 1
 
   I_xx = inertia_mass[0]
@@ -231,16 +230,10 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   contact_moment_x, contact_moment_y, contact_moment_z = \
       calculate_contact_force_moment_naiive(x, u, A, B, C, D, contact_normal_sq, contact_normal, 100.0, 10.0, 1.0)
 
+  cf_out[0] = contact_force_x
+  cf_out[1] = contact_force_y
+  cf_out[2] = contact_force_z
 
-
-  g = 9.81
-
-  fx_total = u[0] + contact_force_x 
-  fy_total = u[1] + contact_force_y 
-  fz_total = u[2] + contact_force_z 
-  mx_total = u[3] + contact_moment_x 
-  my_total = u[4] + contact_moment_y 
-  mz_total = u[5] + contact_moment_z  
 
   sin_phi = math.sin(x[6])
   cos_phi = math.cos(x[6])
@@ -249,6 +242,34 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass):
   sin_psi = math.sin(x[8])
   cos_psi = math.cos(x[8])
 
+  # Standard Z-Y-X Euler angles:
+  R00 = cos_theta * cos_psi
+  R01 = cos_theta * sin_psi
+  R02 = -sin_theta
+
+  R10 = sin_phi * sin_theta * cos_psi - cos_phi * sin_psi
+  R11 = sin_phi * sin_theta * sin_psi + cos_phi * cos_psi
+  R12 = sin_phi * cos_theta
+
+  R20 = cos_phi * sin_theta * cos_psi + sin_phi * sin_psi
+  R21 = cos_phi * sin_theta * sin_psi - sin_phi * cos_psi
+  R22 = cos_phi * cos_theta
+  
+  # Transform the contact force from inertial to body frame.
+  Fx_contact_body = R00 * contact_force_x + R10 * contact_force_y + R20 * contact_force_z
+  Fy_contact_body = R01 * contact_force_x + R11 * contact_force_y + R21 * contact_force_z
+  Fz_contact_body = R02 * contact_force_x + R12 * contact_force_y + R22 * contact_force_z
+
+  g = 9.81
+
+  fx_total = u[0] + Fx_contact_body 
+  fy_total = u[1] + Fy_contact_body 
+  fz_total = u[2] + Fz_contact_body 
+  mx_total = u[3] #+ contact_moment_x 
+  my_total = u[4] #+ contact_moment_y 
+  mz_total = u[5] #+ contact_moment_z  
+
+  
   x[0] += dt*x[3] 
   x[1] += dt*x[4]
   x[2] += dt*x[5]
@@ -617,8 +638,9 @@ class MPPI_Numba(object):
       u_noisy = u_nom
       # u_noisy = max(vrange_d[0], min(vrange_d[1], v_nom))
       
+      cf = cuda.local.array(3, float32)  # local array to hold contact force
       # Forward simulate
-      dynamics_update(x_curr, u_noisy, dt_d, CONTACT_NORMAL, inertia_mass_d)
+      dynamics_update(x_curr, u_noisy, dt_d, CONTACT_NORMAL, inertia_mass_d, cf)
 
       w_pose_xy = 4500
       w_pose_z =  5300
@@ -644,7 +666,8 @@ class MPPI_Numba(object):
                     + cost_weights_d[6]*((xgoal_d[6]-x_curr[6])**2) + cost_weights_d[7]*((xgoal_d[7]-x_curr[7])**2) + cost_weights_d[8]*((xgoal_d[8]-x_curr[8])**2)\
                     + cost_weights_d[9]*((xgoal_d[9]-x_curr[9])**2) + cost_weights_d[10]*((xgoal_d[10]-x_curr[10])**2) + cost_weights_d[11]**(xgoal_d[11]-x_curr[11])**2\
                     + cost_weights_d[12]*((u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
-                    + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2))
+                    + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2))\
+                    + 1000 * (cf[0] - 0.1) ** 2 
                     
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
 
