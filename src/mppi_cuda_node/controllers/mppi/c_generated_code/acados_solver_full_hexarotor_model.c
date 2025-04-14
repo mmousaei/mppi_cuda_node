@@ -466,7 +466,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_0[0+(NY0) * 0] = 50;
     W_0[1+(NY0) * 1] = 50;
-    W_0[2+(NY0) * 2] = 50;
+    W_0[2+(NY0) * 2] = 25;
     W_0[3+(NY0) * 3] = 3;
     W_0[4+(NY0) * 4] = 3;
     W_0[5+(NY0) * 5] = 3;
@@ -479,9 +479,9 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W_0[12+(NY0) * 12] = 0.4;
     W_0[13+(NY0) * 13] = 0.4;
     W_0[14+(NY0) * 14] = 0.4;
-    W_0[15+(NY0) * 15] = 8;
-    W_0[16+(NY0) * 16] = 8;
-    W_0[17+(NY0) * 17] = 8;
+    W_0[15+(NY0) * 15] = 16;
+    W_0[16+(NY0) * 16] = 16;
+    W_0[17+(NY0) * 17] = 16;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* Vx_0 = calloc(NY0*NX, sizeof(double));
@@ -522,7 +522,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W[0+(NY) * 0] = 50;
     W[1+(NY) * 1] = 50;
-    W[2+(NY) * 2] = 50;
+    W[2+(NY) * 2] = 25;
     W[3+(NY) * 3] = 3;
     W[4+(NY) * 4] = 3;
     W[5+(NY) * 5] = 3;
@@ -535,9 +535,9 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     W[12+(NY) * 12] = 0.4;
     W[13+(NY) * 13] = 0.4;
     W[14+(NY) * 14] = 0.4;
-    W[15+(NY) * 15] = 8;
-    W[16+(NY) * 16] = 8;
-    W[17+(NY) * 17] = 8;
+    W[15+(NY) * 15] = 16;
+    W[16+(NY) * 16] = 16;
+    W[17+(NY) * 17] = 16;
 
     for (int i = 1; i < N; i++)
     {
@@ -588,7 +588,7 @@ void full_hexarotor_model_acados_setup_nlp_in(full_hexarotor_model_solver_capsul
     // change only the non-zero elements:
     W_e[0+(NYN) * 0] = 50;
     W_e[1+(NYN) * 1] = 50;
-    W_e[2+(NYN) * 2] = 50;
+    W_e[2+(NYN) * 2] = 25;
     W_e[3+(NYN) * 3] = 3;
     W_e[4+(NYN) * 4] = 3;
     W_e[5+(NYN) * 5] = 3;
