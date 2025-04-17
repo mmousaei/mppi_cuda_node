@@ -225,6 +225,7 @@ def dynamics_update_lcp_contact_force(x, u, dt, contact_normal, inertia_mass,
         # We'll do a naive shift in x
         x[0] -= penetration  # shift body in negative x
 
+
         # (B) find E.E. velocity in world X.  (We are ignoring angular velocity for brevity.)
         # If that velocity is positive => we apply impulse
         if vx2 > 0.0:
@@ -622,8 +623,8 @@ class MPPI_Numba(object):
                     + cost_weights_d[3]*((xgoal_d[3]-x_curr[3])**2) + cost_weights_d[4]*((xgoal_d[4]-x_curr[4])**2) + cost_weights_d[5]*((xgoal_d[5]-x_curr[5])**2)\
                     + cost_weights_d[6]*((xgoal_d[6]-x_curr[6])**2) + cost_weights_d[7]*((xgoal_d[7]-x_curr[7])**2) + cost_weights_d[8]*((xgoal_d[8]-x_curr[8])**2)\
                     + cost_weights_d[9]*((xgoal_d[9]-x_curr[9])**2) + cost_weights_d[10]*((xgoal_d[10]-x_curr[10])**2) + cost_weights_d[11]*(xgoal_d[11]-x_curr[11])**2\
-                    + cost_weights_d[12]*((u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
-                    + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2)) #+ 100 * (cf[0] + 0.1) ** 2 
+                    + cost_weights_d[12]*(50*(u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
+                    + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2)) + 100 * (cf[0] + 5) ** 2 
                     
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
 
@@ -644,7 +645,6 @@ class MPPI_Numba(object):
       costs_d[bid] += cost_weights_d[14]*lambda_weight_d*(
               (u_cur_d[t,0]/(u_std_d[0]**2))*noise_samples_d[bid, t,0] + (u_cur_d[t,1]/(u_std_d[1]**2))*noise_samples_d[bid, t, 1] + (u_cur_d[t,2]/(u_std_d[2]**2))*noise_samples_d[bid, t, 2]\
                  + cost_weights_d[15]*((u_cur_d[t,3]/(u_std_d[3]**2))*noise_samples_d[bid, t, 3] + (u_cur_d[t,4]/(u_std_d[4]**2))*noise_samples_d[bid, t, 4] + (u_cur_d[t,5]/(u_std_d[5]**2))*noise_samples_d[bid, t, 5]))
-
   @staticmethod
   @cuda.jit(fastmath=True)
   def update_useq_numba(
@@ -827,7 +827,7 @@ if __name__ == "__main__":
     cfg = Config(
             T=2,                # Horizon length in seconds
             dt=0.3,        # Time step
-            num_control_rollouts=1024*4,
+            num_control_rollouts=1024*16,
             num_controls=6,
             num_states=12,
             num_vis_state_rollouts=1,
@@ -839,7 +839,7 @@ if __name__ == "__main__":
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    xgoal = np.array([0.1,-0.2, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
+    xgoal = np.array([0.4,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
   
 
     
@@ -996,13 +996,31 @@ if __name__ == "__main__":
       k3, kf3 = f(state + k2 / 2, cf + kf2 / 2)
       k4, kf4 = f(state + k3, cf + kf3)
 
-      k1 = hex_dynamics(state, control_inputs, mppi_params) * dt
-      k2 = hex_dynamics(state + k1 / 2, control_inputs, mppi_params) * dt 
-      k3 = hex_dynamics(state + k2 / 2, control_inputs, mppi_params) * dt
-      k4 = hex_dynamics(state + k3, control_inputs, mppi_params) * dt
+      # k1 = hex_dynamics(state, control_inputs, mppi_params) * dt
+      # k2 = hex_dynamics(state + k1 / 2, control_inputs, mppi_params) * dt 
+      # k3 = hex_dynamics(state + k2 / 2, control_inputs, mppi_params) * dt
+      # k4 = hex_dynamics(state + k3, control_inputs, mppi_params) * dt
 
       next_state = state + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
       next_cf = cf + dt * (kf1 + 2 * kf2 + 2 * kf3 + kf4) / 6
+      return (next_state, next_cf)
+    
+    def dynamics_update_euler(state, control_inputs, cf, dt, mppi_params):
+      """
+      Single-step Euler integration with contact impulses applied exactly once per dt.
+      We simply call simulate_dynamics() once, which internally:
+        - calls the GPU kernel
+        - applies the contact impulse if needed
+        - updates the state for the entire dt
+      """
+      # simulate_dynamics() is your GPU wrapper that calls dynamics_update_lcp_contact_force once
+      next_state, next_cf = simulate_dynamics(
+          state,
+          control_inputs,
+          dt,
+          CONTACT_NORMAL,
+          mppi_params['inertia_mass']
+      )
       return (next_state, next_cf)
     # Loop
     
@@ -1049,7 +1067,8 @@ if __name__ == "__main__":
           xhist[t+1, :], fhist[t+1, :] = dynamics_update_rk4(xhist[t, :], u_mpc, fhist[t, :], mpc_params['dt'], mppi_params)
         else:
           # xhist[t+1, :] = dynamics_update_sim(xhist[t, :], u_curr, cfg.dt)
-          xhist[t+1, :], fhist[t+1, :] = dynamics_update_rk4(xhist[t, :], u_curr, fhist[t, :], cfg.dt, mppi_params)
+          # xhist[t+1, :], fhist[t+1, :] = dynamics_update_rk4(xhist[t, :], u_curr, fhist[t, :], cfg.dt, mppi_params)
+          xhist[t+1, :], fhist[t+1, :] = dynamics_update_euler(xhist[t, :], u_curr, fhist[t, :], cfg.dt, mppi_params)
         # print("x: ", xhist[t+1, :])
         print(t)
         # Update MPPI state (x0, useq)
