@@ -96,7 +96,7 @@ def dynamics_update_lcp_contact_force(x, u, dt, contact_normal, inertia_mass, pl
     # Constants
     arm_length = 1.2
     eps_pen    = 1e-4
-    mu         = 0.5
+    mu         = 0.01
 
     # Unpack inertia and gravity
     Ixx, Iyy, Izz, m = inertia_mass[0], inertia_mass[1], inertia_mass[2], inertia_mass[3]
@@ -751,7 +751,7 @@ if __name__ == "__main__":
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     xgoal = np.array([0.3,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
-    fgoal = np.array([5, 0, 0])
+    fgoal = np.array([15, 0, 0])
 
     
     mppi_params = {

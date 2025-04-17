@@ -15,13 +15,15 @@ import math
 import rospy
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, WrenchStamped, PoseStamped, Vector3Stamped
 from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
 
+
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
+# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
@@ -74,6 +76,8 @@ class MPPIControllerNode(object):
             'x0': self.current_state,
             # Default goal (can be updated via an external command if desired)
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            'fgoal': np.array([5, 0, 0]),
+            'plane': np.array([1, 0, 0, -1.3]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
@@ -86,10 +90,13 @@ class MPPIControllerNode(object):
                 1, 1, 1,
                 25500, 25500, 25500,
                 1, 1, 1,
-                1, 100, 1, 100, 200
+                1, 100, 1, 100, 200,
+                100, 100, 100
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
+
+        self.current_force_meas = np.zeros(3)
         self.integral_error_z = 0.0  # Initialize integral error for z tracking
         self.I_gain_z = 0.05  # Small integral gain (tune this!)
 
@@ -114,6 +121,8 @@ class MPPIControllerNode(object):
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
         rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
+        rospy.Subscriber('/ft_data_filtered', WrenchStamped, self.force_sensor_callback)
+
         # (Optional: subscribe to an external target command and update self.mppi_params['xgoal'] if needed)
 
         # Publisher for the target that MPPI computes (for MPC)
@@ -160,6 +169,18 @@ class MPPIControllerNode(object):
         self.mppi_controller.set_params(self.mppi_params)
         
         return config
+    
+
+    def force_sensor_callback(self, msg):
+        """
+        Store the measured 3D force from WrenchStamped.
+        Adjust if your sensor orientation is different.
+        """
+        # Update the current force measurement
+        self.current_force_meas[0] = msg.wrench.force.x
+        self.current_force_meas[1] = msg.wrench.force.y
+        self.current_force_meas[2] = msg.wrench.force.z
+
     
     def hex_dynamics(self, x, u):
         p, v, Psi, omega = np.split(x, 4)
