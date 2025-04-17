@@ -30,6 +30,8 @@ rec_min_control_rollouts = 100
 
 CONTACT_NORMAL = np.array([-1, 0, 0], dtype=np.float32)
 # CONTACT_NORMAL = cuda.to_device(CONTACT_NORMAL_numpy)
+
+
 class Config:
   
   """ Configurations that are typically fixed throughout execution. """
