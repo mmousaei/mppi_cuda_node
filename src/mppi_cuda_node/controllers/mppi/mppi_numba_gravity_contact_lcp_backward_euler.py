@@ -83,20 +83,23 @@ def term_cost(dist2, goal_reached):
 @cuda.jit(device=True, fastmath=True)
 def dynamics_update_lcp_contact_force(x, u, dt, contact_normal, inertia_mass, plane, f_contact_out=None):
     """
-    Single‑plane LCP contact model (normal + polyhedral Coulomb friction) using plane A x + B y + C z + D = 0.
-    Solves small LCP for normal impulse and two tangential impulses via Projected Gauss–Seidel.
+    Single-plane implicit-compliant contact model (backward-Euler spring–damper + Coulomb friction).
 
-    x: [px,py,pz, vx,vy,vz, roll,pitch,yaw, wx,wy,wz]
-    u: [Fx_b, Fy_b, Fz_b, Mx, My, Mz]
+    Stable for large dt and avoids LCP jitter.
+
+    x: state [px,py,pz, vx,vy,vz, roll,pitch,yaw, wx,wy,wz]
+    u: control [Fx_b, Fy_b, Fz_b, Mx, My, Mz]
     plane: [A,B,C,D]
-    inertia_mass: [Ixx, Iyy, Izz, m]
-    f_contact_out: optional (3,) world‑frame contact force output
+    inertia_mass: [Ixx,Iyy,Izz,m]
+    f_contact_out: optional (3,) world-frame contact force
     """
-    # Constants
+    # Parameters
     arm_length = 1.2
     mu = 0.01
+    k_spring = 200.0   # N/m
+    c_damp   = 20.0     # N·s/m
 
-    # Unpack inertia and mass/gravity
+    # Unpack inertia
     Ixx, Iyy, Izz, m = inertia_mass[0], inertia_mass[1], inertia_mass[2], inertia_mass[3]
     g = 9.81
 
@@ -106,7 +109,7 @@ def dynamics_update_lcp_contact_force(x, u, dt, contact_normal, inertia_mass, pl
     phi, th, psi = x[6], x[7], x[8]
     wx_b, wy_b, wz_b = x[9], x[10], x[11]
 
-    # Rotation Z-Y-X -> body->world
+    # Rotation Z-Y-X
     sphi, cphi = math.sin(phi), math.cos(phi)
     sth, cth   = math.sin(th),   math.cos(th)
     spsi, cpsi = math.sin(psi),  math.cos(psi)
@@ -118,107 +121,80 @@ def dynamics_update_lcp_contact_force(x, u, dt, contact_normal, inertia_mass, pl
     R21 = cphi*sth*spsi - sphi*cpsi
     R22 = cphi*cth
 
-    # Map control forces into world
+    # Body->world force
     Fx_w = R00*u[0] + R01*u[1] + R02*u[2]
     Fy_w = R10*u[0] + R11*u[1] + R12*u[2]
     Fz_w = R20*u[0] + R21*u[1] + R22*u[2] - m*g
 
-    # Free-flight Euler integration
+    # Integrate flight
     px += dt*vx; py += dt*vy; pz += dt*vz
     vx += dt*Fx_w/m; vy += dt*Fy_w/m; vz += dt*Fz_w/m
+
+    # Integrate orientation
     phi_dot = wx_b + sphi*math.tan(th)*wy_b + cphi*math.tan(th)*wz_b
     th_dot  = cphi*wy_b - sphi*wz_b
     psi_dot = (sphi*wy_b + cphi*wz_b)/cth
     phi += dt*phi_dot; th += dt*th_dot; psi += dt*psi_dot
+
+    # Integrate angular velocity
     wx_dot = (u[3] + (Iyy-Izz)*wy_b*wz_b)/Ixx
     wy_dot = (u[4] + (Izz-Ixx)*wx_b*wz_b)/Iyy
     wz_dot = (u[5] + (Ixx-Iyy)*wx_b*wy_b)/Izz
     wx_b += dt*wx_dot; wy_b += dt*wy_dot; wz_b += dt*wz_dot
 
-    # End-effector position & velocity in world
+    # End-effector pos & vel
     ee_x = px + R00*arm_length; ee_y = py + R10*arm_length; ee_z = pz + R20*arm_length
     w_wx = R00*wx_b + R01*wy_b + R02*wz_b
     w_wy = R10*wx_b + R11*wy_b + R12*wz_b
     w_wz = R20*wx_b + R21*wy_b + R22*wz_b
-    r_wx, r_wy, r_wz = R00*arm_length, R10*arm_length, R20*arm_length
-    v_ex = vx + (w_wy*r_wz - w_wz*r_wy)
-    v_ey = vy + (w_wz*r_wx - w_wx*r_wz)
+    r_wx = R00*arm_length; r_wy = R10*arm_length; r_rz = R20*arm_length
+    v_ex = vx + (w_wy*r_rz - w_wz*r_wy)
+    v_ey = vy + (w_wz*r_wx - w_wx*r_rz)
     v_ez = vz + (w_wx*r_wy - w_wy*r_wx)
 
-    # Plane normal and penetration
-    A, B, C = plane[0], plane[1], plane[2]; D = plane[3]
+    # Compute penetration
+    A, B, C = plane[0], plane[1], plane[2]
+    D = plane[3]
     norm_n = math.sqrt(A*A + B*B + C*C) + 1e-9
     nx, ny, nz = A/norm_n, B/norm_n, C/norm_n
-    pen = (A*ee_x + B*ee_y + C*ee_z + D)/norm_n
+    pen = (A*ee_x + B*ee_y + C*ee_z + D) / norm_n
 
-    # Default contact force
-    Fx_c = Fy_c = Fz_c = 0.0
+    # Contact force
+    Fx_c = 0.0; Fy_c = 0.0; Fz_c = 0.0
+    if pen > 0.0001:
+        # normal velocity
+        v_n = v_ex*nx + v_ey*ny + v_ez*nz
+        # solve implicit compliance magnitude
+        Fn_mag = (k_spring*pen + c_damp*v_n) / (1.0 + (c_damp*dt)/m)
+        # ensure non-negative magnitude
+        if Fn_mag < 0.0:
+            Fn_mag = 0.0
+        # normal force vector (opposite penetration normal)
+        Fx_n = -Fn_mag * nx
+        Fy_n = -Fn_mag * ny
+        Fz_n = -Fn_mag * nz
+        # Coulomb friction
+        vt_x = v_ex - v_n*nx; vt_y = v_ey - v_n*ny; vt_z = v_ez - v_n*nz
+        vt_mag = math.sqrt(vt_x*vt_x + vt_y*vt_y + vt_z*vt_z) + 1e-9
+        Ft_mag = mu * Fn_mag
+        dx, dy, dz = -vt_x/vt_mag, -vt_y/vt_mag, -vt_z/vt_mag
+        Fx_c = Fx_n + Ft_mag*dx
+        Fy_c = Fy_n + Ft_mag*dy
+        Fz_c = Fz_n + Ft_mag*dz
+        # apply contact forces
+        vx += (Fx_c * dt) / m
+        vy += (Fy_c * dt) / m
+        vz += (Fz_c * dt) / m
+        # position correction
+        px -= pen * nx; py -= pen * ny; pz -= pen * nz
 
-    if pen > 0.1:
-        # 1) build tangent basis via Gram-Schmidt
-        # choose arbitrary axis not parallel to n
-        if abs(nx) < 0.9:
-            ax, ay, az = 1.0, 0.0, 0.0
-        else:
-            ax, ay, az = 0.0, 1.0, 0.0
-        # dir1 = normalize(n × a)
-        t1x = ny*az - nz*ay; t1y = nz*ax - nx*az; t1z = nx*ay - ny*ax
-        inv = 1.0 / math.sqrt(t1x*t1x + t1y*t1y + t1z*t1z + 1e-9)
-        dir1_x, dir1_y, dir1_z = t1x*inv, t1y*inv, t1z*inv
-        # dir2 = n × dir1
-        dir2_x = ny*dir1_z - nz*dir1_y
-        dir2_y = nz*dir1_x - nx*dir1_z
-        dir2_z = nx*dir1_y - ny*dir1_x
-
-        # 2) small LCP: unknown impulses λ = [λ_n, λ_t1, λ_t2]
-        # mass matrix approx diagonal M = diag(m,m,m)
-        M00 = m; M11 = m; M22 = m
-        M01 = M02 = M10 = M12 = M20 = M21 = 0.0
-
-        # current relative velocities
-        v_n  = v_ex*nx  + v_ey*ny  + v_ez*nz
-        v_t1 = v_ex*dir1_x + v_ey*dir1_y + v_ez*dir1_z
-        v_t2 = v_ex*dir2_x + v_ey*dir2_y + v_ez*dir2_z
-
-        # RHS b = M * v
-        b0 = M00 * v_n
-        b1 = M11 * v_t1
-        b2 = M22 * v_t2
-
-        # initialize impulses
-        lam_n = lam_t1 = lam_t2 = 0.0
-        # PGS sweeps
-        for _ in range(8):
-            # normal: λ_n ≥ 0, v_n+ = 0 => lam_n = max(0, -(b0 + M01*lam_t1 + M02*lam_t2)/M00)
-            lam_n = max(0.0, -(b0 + M01*lam_t1 + M02*lam_t2) / M00)
-            # friction bounds: |λ_ti| ≤ μ λ_n
-            lam_t1 = min(max(lam_t1, -mu*lam_n), mu*lam_n)
-            lam_t2 = min(max(lam_t2, -mu*lam_n), mu*lam_n)
-
-        # impulses → forces
-        Fn  = lam_n  / dt
-        Ft1 = lam_t1 / dt
-        Ft2 = lam_t2 / dt
-
-        # reconstruct contact force
-        Fx_c = Fn*nx + Ft1*dir1_x + Ft2*dir2_x
-        Fy_c = Fn*ny + Ft1*dir1_y + Ft2*dir2_y
-        Fz_c = Fn*nz + Ft1*dir1_z + Ft2*dir2_z
-
-        # apply impulse to velocities
-        vx += Fx_c / m; vy += Fy_c / m; vz += Fz_c / m
-        # correct penetration
-        px -= pen*nx; py -= pen*ny; pz -= pen*nz
-
-    # Write-back state
-    x[0],x[1],x[2]   = px,py,pz
-    x[3],x[4],x[5]   = vx,vy,vz
-    x[6],x[7],x[8]   = phi,th,psi
-    x[9],x[10],x[11]= wx_b,wy_b,wz_b
+    # write-back state
+    x[0], x[1], x[2] = px, py, pz
+    x[3], x[4], x[5] = vx, vy, vz
+    x[6], x[7], x[8] = phi, th, psi
+    x[9], x[10], x[11] = wx_b, wy_b, wz_b
     if f_contact_out is not None:
-        f_contact_out[0],f_contact_out[1],f_contact_out[2]= Fx_c, Fy_c, Fz_c
-
-
+        f_contact_out[0], f_contact_out[1], f_contact_out[2] = Fx_c, Fy_c, Fz_c
 
 
 
@@ -841,7 +817,7 @@ if __name__ == "__main__":
             'weights': np.array([
                 19550, 19550, 24840,
                 1, 1, 1,
-                25500, 25500, 25500,
+                25500, 255000, 25500,
                 1, 1, 1,
                 1, 100, 1, 100, 200,
                 100, 100, 100
@@ -852,7 +828,7 @@ if __name__ == "__main__":
     mppi_controller = MPPI_Numba(cfg)
     mppi_controller.set_params(mppi_params)
 
-    max_steps = 100
+    max_steps = 500
 
     
     # Loop

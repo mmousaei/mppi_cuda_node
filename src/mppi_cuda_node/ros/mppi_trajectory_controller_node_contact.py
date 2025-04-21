@@ -23,7 +23,7 @@ from scipy.signal import butter
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config, dynamics_update_euler
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
@@ -53,7 +53,8 @@ class MPPIControllerNode(object):
 
         # ----- Initialize state and parameters -----
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
-        self.mpc_target = np.zeros(12)     # Target state for MPC (to be computed)
+        self.mpc_target = np.zeros(12) # Target state for MPC (to be computed)
+        self.mpc_force_target = np.zeros(3)    # Force target for MPC (to be computed)
         self.activate = False
         self.mpc_horizon = 0.8
 
@@ -61,8 +62,8 @@ class MPPIControllerNode(object):
 
         # ----- MPPI Setup -----
         self.cfg = Config(
-            T=1.0,            # Horizon length in seconds
-            dt=0.2,         # Time step (seconds)
+            T=2.0,            # Horizon length in seconds
+            dt=0.3,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -127,6 +128,7 @@ class MPPIControllerNode(object):
 
         # Publisher for the target that MPPI computes (for MPC)
         self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
+        self.force_target_pub = rospy.Publisher('/mpc/wrenchtarget', WrenchStamped, queue_size=10)
         self.target_pub_debug = rospy.Publisher('/mppi_debug/target_mpc_debug', PoseStamped, queue_size=10)
 
         self.mppi_rate_hz = 1/self.cfg.dt  # Run MPPI at 1/dt Hz
@@ -279,7 +281,9 @@ class MPPIControllerNode(object):
             next_state = self.mppi_state.copy()    
 
         else:
-            next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+            # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+            next_force_target = np.zeros(3)
+            next_state, next_force_target = dynamics_update_euler(self.current_state.copy(), mppi_u, next_force_target, self.mppi_params['dt'], self.mppi_params)
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
 
@@ -294,12 +298,15 @@ class MPPIControllerNode(object):
         
         # alpha = 0.1  # Adjust this parameter as needed
         # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
-
+        print("next_state: ", next_state)
+        print("next_force: ", next_force_target)
+        next_state = np.array(next_state)
         next_state_filtered = self.lpf.filter(next_state)
         next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
         # next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
+        self.mpc_force_target = next_force_target
 
 
     def dynamics_update(self, state, control_inputs, dt):
@@ -359,6 +366,13 @@ class MPPIControllerNode(object):
 
 
         self.target_pub_debug.publish(target_msg)
+
+        force_target_msg = WrenchStamped()
+        force_target_msg.header.stamp = rospy.Time.now()
+        force_target_msg.wrench.force.x = self.mpc_force_target[0]
+        force_target_msg.wrench.force.y = self.mpc_force_target[1]
+        force_target_msg.wrench.force.z = self.mpc_force_target[2]
+        self.force_target_pub.publish(force_target_msg)
 
     def spin(self):
         rate = rospy.Rate(self.mppi_rate_hz)
