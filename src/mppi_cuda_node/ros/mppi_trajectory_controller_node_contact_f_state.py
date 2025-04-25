@@ -23,7 +23,8 @@ from scipy.signal import butter
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
+# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp_3d_f_state import MPPI_Numba, Config, dynamics_update_euler
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
@@ -62,7 +63,7 @@ class MPPIControllerNode(object):
         # ----- MPPI Setup -----
         self.cfg = Config(
             T=1.0,            # Horizon length in seconds
-            dt=0.2,         # Time step (seconds)
+            dt=0.08,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -73,15 +74,15 @@ class MPPIControllerNode(object):
         self.use_local_state = False
         self.mppi_params = {
             'dt': self.cfg.dt,
-            'x0': self.current_state,
+            'x0': np.concatenate((self.current_state, np.array([0, 0, 0]))),
             # Default goal (can be updated via an external command if desired)
-            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'fgoal': np.array([5, 0, 0]),
-            'plane': np.array([1, 0, 0, -1.3]),
+            'plane': np.array([1, 0, 0, -10.8]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 5,
+            'num_opt': 9,
             'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
@@ -260,7 +261,7 @@ class MPPIControllerNode(object):
             else:
                 self.mppi_controller.shift_and_update(self.mppi_state, self.optimal_control_seq, num_shifts=1)
         else:
-            self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
+            self.mppi_controller.shift_and_update(np.concatenate((self.current_state, self.current_force_meas)), self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
 
     def forward_simulate_for_mpc_target(self):
@@ -279,7 +280,17 @@ class MPPIControllerNode(object):
             next_state = self.mppi_state.copy()    
 
         else:
-            next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+
+            forward_steps = max(int(self.mpc_horizon/self.cfg.dt/2), 1)
+            temp_state = np.concatenate((self.current_state, self.current_force_meas))
+            temp_force = np.zeros(3)
+            for i in range(forward_steps-1):
+                mppi_u = self.optimal_control_seq[i, :].copy()
+                # temp_state = self.dynamics_update(temp_state.copy(), mppi_u, self.cfg.dt)
+                temp_state, temp_force = dynamics_update_euler(temp_state, mppi_u, temp_force, self.cfg.dt, self.mppi_params)
+            next_state = temp_state[:12].copy()
+
+            # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
 
@@ -317,6 +328,8 @@ class MPPIControllerNode(object):
         k4 = self.hex_dynamics(state + k3, control_inputs) * dt
         next_state = state + (k1 + 2*k2 + 2*k3 + k4) / 6
         return next_state
+    
+
     
     def publish_mpc_target(self):
         """

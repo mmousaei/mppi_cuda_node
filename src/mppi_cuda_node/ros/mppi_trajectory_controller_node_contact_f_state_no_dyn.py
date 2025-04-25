@@ -23,7 +23,8 @@ from scipy.signal import butter
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
+# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
+from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp_3d_f_state_no_dyn import MPPI_Numba, Config, dynamics_update_euler
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
 import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
 from dynamic_reconfigure.server import Server
@@ -54,18 +55,20 @@ class MPPIControllerNode(object):
         # ----- Initialize state and parameters -----
         self.current_state = np.zeros(12)  # [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
         self.mpc_target = np.zeros(12)     # Target state for MPC (to be computed)
+        self.mpc_force_target = np.zeros(3)
         self.activate = False
         self.mpc_horizon = 0.8
+        self.contacting = 0
 
         self.initialize_hexarotor_parameters()
 
         # ----- MPPI Setup -----
         self.cfg = Config(
             T=1.0,            # Horizon length in seconds
-            dt=0.2,         # Time step (seconds)
+            dt=0.08,         # Time step (seconds)
             num_control_rollouts=1024*4,
-            num_controls=6,
-            num_states=12,
+            num_controls=9,
+            num_states=15,
             num_vis_state_rollouts=1,
             seed=1
         )
@@ -73,16 +76,16 @@ class MPPIControllerNode(object):
         self.use_local_state = False
         self.mppi_params = {
             'dt': self.cfg.dt,
-            'x0': self.current_state,
+            'x0': np.concatenate((self.current_state, np.array([0, 0, 0]))),
             # Default goal (can be updated via an external command if desired)
-            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            'fgoal': np.array([5, 0, 0]),
-            'plane': np.array([1, 0, 0, -1.3]),
+            'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            'fgoal': np.array([6, 0, 0]),
+            'plane': np.array([-1, 0, 0, 10.1]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
             'lambda_weight': 10,
-            'num_opt': 5,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'num_opt': 9,
+            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
@@ -91,7 +94,7 @@ class MPPIControllerNode(object):
                 25500, 25500, 25500,
                 1, 1, 1,
                 1, 100, 1, 100, 200,
-                100, 100, 100
+                500, 500, 500
             ]),
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
@@ -115,7 +118,7 @@ class MPPIControllerNode(object):
         cutoff_freq = 10
         sampling_rate = 1 / 0.02  # Based on a 50 Hz update rate
         b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
-        self.lpf = OnlineLPF(b, a, self.cfg.num_states)
+        self.lpf = OnlineLPF(b, a, self.cfg.num_states-3)
 
         # ----- Subscribers and Publishers -----
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
@@ -127,6 +130,7 @@ class MPPIControllerNode(object):
 
         # Publisher for the target that MPPI computes (for MPC)
         self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
+        self.target_force_pub = rospy.Publisher('/mpc/wrenchtarget', WrenchStamped, queue_size=10)
         self.target_pub_debug = rospy.Publisher('/mppi_debug/target_mpc_debug', PoseStamped, queue_size=10)
 
         self.mppi_rate_hz = 1/self.cfg.dt  # Run MPPI at 1/dt Hz
@@ -177,9 +181,10 @@ class MPPIControllerNode(object):
         Adjust if your sensor orientation is different.
         """
         # Update the current force measurement
-        self.current_force_meas[0] = msg.wrench.force.x
-        self.current_force_meas[1] = msg.wrench.force.y
-        self.current_force_meas[2] = msg.wrench.force.z
+        # pass
+        self.current_force_meas[0] = -msg.wrench.force.x
+        self.current_force_meas[1] = -msg.wrench.force.y
+        self.current_force_meas[2] = -msg.wrench.force.z
 
     
     def hex_dynamics(self, x, u):
@@ -260,7 +265,7 @@ class MPPIControllerNode(object):
             else:
                 self.mppi_controller.shift_and_update(self.mppi_state, self.optimal_control_seq, num_shifts=1)
         else:
-            self.mppi_controller.shift_and_update(self.current_state, self.optimal_control_seq, num_shifts=1)
+            self.mppi_controller.shift_and_update(np.concatenate((self.current_state, self.current_force_meas)), self.optimal_control_seq, num_shifts=1)
         self.optimal_control_seq = self.mppi_controller.solve()
 
     def forward_simulate_for_mpc_target(self):
@@ -279,7 +284,19 @@ class MPPIControllerNode(object):
             next_state = self.mppi_state.copy()    
 
         else:
-            next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
+
+            forward_steps = max(int(self.mpc_horizon/self.cfg.dt/2), 1)
+            temp_state = np.concatenate((self.current_state, self.current_force_meas))
+            temp_force = np.zeros(3)
+            contact = 0
+            for i in range(forward_steps-1):
+                mppi_u = self.optimal_control_seq[i, :].copy()
+                # temp_state, temp_force = self.dynamics_update(temp_state, mppi_u, self.cfg.dt)
+                temp_state, temp_force, contact = dynamics_update_euler(temp_state, mppi_u, temp_force, self.cfg.dt, self.mppi_params)
+            next_state = temp_state[:12].copy()
+            # self.current_force_meas = temp_state[12:]
+
+            # next_state = self.dynamics_update(self.current_state.copy(), mppi_u, self.mppi_params['dt'])
         # (Optional) Gravity compensation could be applied here if desired.
         # Forward-simulate using a simple RK4 integration:
 
@@ -296,10 +313,12 @@ class MPPIControllerNode(object):
         # self.mppi_state = alpha * self.current_state + (1 - alpha) * self.mppi_state
 
         next_state_filtered = self.lpf.filter(next_state)
-        next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
+        # next_state_filtered[6:9] = np.clip(next_state_filtered[6:9], -0.02, 0.02)
         # next_state_filtered[2] += self.I_gain_z * self.integral_error_z
         self.mppi_state = next_state_filtered
         self.mpc_target = next_state_filtered
+        force_target = np.array([-temp_state[12]*contact, -temp_state[13]*contact, -temp_state[14]*contact])
+        self.mpc_force_target = force_target
 
 
     def dynamics_update(self, state, control_inputs, dt):
@@ -317,6 +336,8 @@ class MPPIControllerNode(object):
         k4 = self.hex_dynamics(state + k3, control_inputs) * dt
         next_state = state + (k1 + 2*k2 + 2*k3 + k4) / 6
         return next_state
+    
+
     
     def publish_mpc_target(self):
         """
@@ -356,6 +377,29 @@ class MPPIControllerNode(object):
         target_msg.pose.orientation.z = final_target[8]
         target_msg.pose.orientation.w = 1.0
         self.target_pub.publish(target_msg)
+        
+        # contacting = np.linalg.norm(self.current_force_meas) > 0.1  # e.g. 1 N
+        # if np.linalg.norm(self.current_force_meas) > 0.1:
+        #     self.contacting = 1
+
+        if curr[0] > 9.04:
+            self.contacting = 1
+        else:
+            self.contacting = 0 
+        if self.contacting:
+            # publish the MPPI‐computed force target
+            fx, fy, fz = self.mpc_force_target
+        else:
+            # not touching yet → no force holding
+            fx = fy = fz = 0.0
+
+        target_force_msg = WrenchStamped()
+        target_force_msg.header.stamp = rospy.Time.now()
+        target_force_msg.wrench.force.x = fx
+        target_force_msg.wrench.force.y = fy
+        target_force_msg.wrench.force.z = fz
+        self.target_force_pub.publish(target_force_msg)
+
 
 
         self.target_pub_debug.publish(target_msg)

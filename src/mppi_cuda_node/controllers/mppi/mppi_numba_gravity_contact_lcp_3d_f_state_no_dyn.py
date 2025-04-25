@@ -90,203 +90,93 @@ def term_cost(dist2, goal_reached):
   return (1-np.float32(goal_reached))*dist2
 
 @cuda.jit(device=True, fastmath=True)
-def dynamics_update_lcp_contact_force_cf(x, u, dt,
-                                         contact_normal,   # <-- kept for API compat
-                                         inertia_mass,
-                                         plane,
-                                         f_dot_out=None, pen_out=None):
-    """
-    Semi-implicit Euler integration with a critically–damped Kelvin-Voigt
-    contact model, Coulomb friction, and an exponential low-pass filter on
-    the stored contact force.
+def dynamics_update(x, u, dt, contact_normal, inertia_mass, plane, cf_out, pen_out):
+  # The dynamics update for hexarotor
+  # I_xx = 0.42590587
+  # I_yy = 0.3120579
+  # I_zz = 0.11511835 A, B, C, D, ABC_sq, contact_normal_sq, contact_normal
+  # contact_normal = np.array([-1, 0, 0])
 
-    x  : (15,)  state     [p, v, Euler, ω, F_c]
-    u  : (6,)   control   [Fx,Fy,Fz,Mx,My,Mz] **in body frame**
-    dt : float  step [s]
-    plane = (A,B,C,D) defines Ax+By+Cz+D = 0  (world frame)
+  I_xx = inertia_mass[0]
+  I_yy = inertia_mass[1]
+  I_zz = inertia_mass[2]
+  mass = inertia_mass[3]
 
-    All math is branch-free on the GPU; only a single `if pen<0` is used.
-    """
+  # contact_force_x, contact_force_y, contact_force_z, contact_velocity_x, contact_velocity_y, contact_velocity_z\
+  #   , contact_moment_x, contact_moment_y, contact_moment_z = \
+  #   calculate_contact_force_moment_naiive(x, u, A, B, C, D, ABC_sq, contact_normal_sq, contact_normal)
+  
+  contact_force_x, contact_force_y, contact_force_z, contact_velocity_x, contact_velocity_y, contact_velocity_z\
+    , contact_moment_x, contact_moment_y, contact_moment_z = 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-    # ───── tuned constants ────────────────────────────────────────────────
-    eps      = 1e-8
-    arm_len  = 1.2            # [m] body → end-eff
-    g        = 9.81           # [m/s²]
+  # ───── contact geometry ──────────────────────────────────────────────
+  A, B, C, Dp = plane
+  eps      = 1e-8
+  arm_len  = 1.2            # [m] body → end-eff
+  n_len = math.sqrt(A*A + B*B + C*C) + eps
+  nx, ny, nz = A/n_len, B/n_len, C/n_len
+  sin_phi = math.sin(x[6])
+  cos_phi = math.cos(x[6])
+  sin_theta = math.sin(x[7])
+  cos_theta = math.cos(x[7])
+  sin_psi = math.sin(x[8])
+  cos_psi = math.cos(x[8])
 
-    k_n      = 10.0          # [N/m]  normal stiffness
-    d_n      = 2.0*math.sqrt(k_n) 
-    k_t      = 0.1          # [N/m]  tangential stiffness
-    d_t      = 2.0*math.sqrt(k_t)
+  R00 =  cos_theta*cos_psi;               R01 =  cos_theta*sin_psi;               R02 = -sin_theta
+  R10 =  sin_phi*sin_theta*cos_psi - cos_phi*sin_psi
+  R11 =  sin_phi*sin_theta*sin_psi + cos_phi*cos_psi
+  R12 =  sin_phi*cos_theta
+  R20 =  cos_phi*sin_theta*cos_psi + sin_phi*sin_psi
+  R21 =  cos_phi*sin_theta*sin_psi - sin_phi*cos_psi
+  R22 =  cos_phi*cos_theta
+  ee_x = x[0] + R00*arm_len
+  ee_y = x[1] + R10*arm_len
+  ee_z = x[2] + R20*arm_len
+  pen  = (A*ee_x + B*ee_y + C*ee_z + Dp) / n_len      # <0 = penetration
+  if pen_out is not None:
+      pen_out[0] = pen
+  
+  if pen < 0.2:
+    contact = 1
+    x[12] += dt * u[6]   # ḟ_x
+    x[13] += dt * u[7]   # ḟ_y
+    x[14] += dt * u[8]   # ḟ_z
+  else:
+    contact = 0
+    x[12] = 0.0
+    x[13] = 0.0
+    x[14] = 0.0
 
-    mu       = 0.10           # Coulomb
-    F_MAX    = 300.0          # [N] per axis clamp
-    V_MAX    = 150.0          # [m/s] linear
-    W_MAX    = 20.0           # [rad/s] angular  (≈1140 deg/s)
+  c = -300
+  g = 9.81
 
-    TAU_F    = 0.50           # [s] filter time-constant
-    alphaF   = 1.0 - math.exp(-dt/TAU_F)
+  fx_total = u[0] #+ x[12]
+  fy_total = u[1] #+ x[13]
+  fz_total = u[2] #+ x[14]
+  mx_total = u[3] + contact_moment_x 
+  my_total = u[4] + contact_moment_y 
+  mz_total = u[5] + contact_moment_z  
 
-    # ───── unpack state / parameters ──────────────────────────────────────
-    Ixx, Iyy, Izz, m = inertia_mass[0], inertia_mass[1], inertia_mass[2], inertia_mass[3]
+  
 
-    px, py, pz      = x[PX],  x[PY],  x[PZ]
-    vx, vy, vz      = x[VX],  x[VY],  x[VZ]
-    phi, th, psi    = x[ROLL],x[PITCH],x[YAW]
-    wx, wy, wz      = x[WX],  x[WY],  x[WZ]
-    Fx_s, Fy_s, Fz_s= x[FX],  x[FY],  x[FZ]   # stored (filtered) contact force
+  x[0] += dt*x[3] 
+  x[1] += dt*x[4]
+  x[2] += dt*x[5]
 
-    # ───── rotation body→world (Z-Y-X Euler) ─────────────────────────────
-    sphi, cphi = math.sin(phi),  math.cos(phi)
-    sth,  cth  = math.sin(th),   math.cos(th)
-    sps,  cps  = math.sin(psi),  math.cos(psi)
+  x[3] += dt*((1/mass) * fx_total - g * (cos_phi * sin_theta * cos_psi + sin_phi * sin_psi))
+  x[4] += dt*((1/mass) * fy_total - g * (cos_phi * sin_theta * sin_psi - sin_phi * cos_psi))
+  x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
+  # x[3] += dt*((1/mass) * fx_total - g * sin_theta)
+  # x[4] += dt*((1/mass) * fy_total + g * sin_phi * cos_theta)
+  # x[5] += dt*((1/mass) * fz_total - g * cos_phi * cos_theta)
 
-    R00 =  cth*cps;               R01 =  cth*sps;               R02 = -sth
-    R10 =  sphi*sth*cps - cphi*sps
-    R11 =  sphi*sth*sps + cphi*cps
-    R12 =  sphi*cth
-    R20 =  cphi*sth*cps + sphi*sps
-    R21 =  cphi*sth*sps - sphi*cps
-    R22 =  cphi*cth
-
-    # ───── body-thrust → world ───────────────────────────────────────────
-    Fx_thr = R00*u[0] + R01*u[1] + R02*u[2]
-    Fy_thr = R10*u[0] + R11*u[1] + R12*u[2]
-    Fz_thr = R20*u[0] + R21*u[1] + R22*u[2] - m*g
-
-    ax_thr, ay_thr, az_thr = Fx_thr/m, Fy_thr/m, Fz_thr/m
-
-    # ───── contact geometry ──────────────────────────────────────────────
-    A, B, C, Dp = plane
-    n_len = math.sqrt(A*A + B*B + C*C) + eps
-    nx, ny, nz = A/n_len, B/n_len, C/n_len
-
-    ee_x = px + R00*arm_len
-    ee_y = py + R10*arm_len
-    ee_z = pz + R20*arm_len
-    pen  = (A*ee_x + B*ee_y + C*ee_z + Dp) / n_len      # <0 = penetration
-    if pen_out is not None:
-       pen_out[0] = pen
-
-    v_ex = vx + ( wy*R20 - wz*R10 )*arm_len
-    v_ey = vy + ( wz*R00 - wx*R20 )*arm_len
-    v_ez = vz + ( wx*R10 - wy*R00 )*arm_len
-
-    v_n   = v_ex*nx + v_ey*ny + v_ez*nz
-    a_n   = ax_thr*nx + ay_thr*ny + az_thr*nz
-
-    vt_x  = v_ex - v_n*nx;    at_x = ax_thr - a_n*nx
-    vt_y  = v_ey - v_n*ny;    at_y = ay_thr - a_n*ny
-    vt_z  = v_ez - v_n*nz;    at_z = az_thr - a_n*nz
-
-    # ───── Kelvin-Voigt contact model + Coulomb limit ────────────────────
-    Fn, Ft_x, Ft_y, Ft_z = 0.0, 0.0, 0.0, 0.0
-    f_dot_x = f_dot_y = f_dot_z = 0.0
-
-    if pen < 0.0:                                     # in contact
-        Fn = k_n*(-pen) + d_n*(-v_n)
-        if Fn < 0.0:
-            Fn = 0.0
-
-        Ft_des_x = k_t*(-vt_x) + d_t*(-at_x)
-        Ft_des_y = k_t*(-vt_y) + d_t*(-at_y)
-        Ft_des_z = k_t*(-vt_z) + d_t*(-at_z)
-
-        mag_des = math.sqrt(Ft_des_x*Ft_des_x +
-                            Ft_des_y*Ft_des_y +
-                            Ft_des_z*Ft_des_z) + eps
-        lim     = mu*Fn
-        scale   = 1.0
-        if mag_des > lim:
-            scale = lim / mag_des
-
-        Ft_x, Ft_y, Ft_z = scale*Ft_des_x, scale*Ft_des_y, scale*Ft_des_z
-
-        # instantaneous rate (for optional output)
-        f_dot_x = (-d_n*v_n)*nx + scale*(-d_t*at_x)
-        f_dot_y = (-d_n*v_n)*ny + scale*(-d_t*at_y)
-        f_dot_z = (-d_n*v_n)*nz + scale*(-d_t*at_z)
-
-    # ───── first-order filter on stored force (removes impulses) ─────────
-    Fx_s += alphaF*((Fn*nx + Ft_x) - Fx_s)
-    Fy_s += alphaF*((Fn*ny + Ft_y) - Fy_s)
-    Fz_s += alphaF*((Fn*nz + Ft_z) - Fz_s)
-
-    # clamp
-    if Fx_s >  F_MAX: Fx_s =  F_MAX
-    if Fx_s < -F_MAX: Fx_s = -F_MAX
-    if Fy_s >  F_MAX: Fy_s =  F_MAX
-    if Fy_s < -F_MAX: Fy_s = -F_MAX
-    if Fz_s >  F_MAX: Fz_s =  F_MAX
-    if Fz_s < -F_MAX: Fz_s = -F_MAX
-
-    # ───── linear motion (semi-implicit Euler) ───────────────────────────
-    Fx_tot = Fx_thr + Fx_s
-    Fy_tot = Fy_thr + Fy_s
-    Fz_tot = Fz_thr + Fz_s
-
-    vx += dt*Fx_tot/m
-    vy += dt*Fy_tot/m
-    vz += dt*Fz_tot/m
-
-    if vx >  V_MAX: vx =  V_MAX
-    if vx < -V_MAX: vx = -V_MAX
-    if vy >  V_MAX: vy =  V_MAX
-    if vy < -V_MAX: vy = -V_MAX
-    if vz >  V_MAX: vz =  V_MAX
-    if vz < -V_MAX: vz = -V_MAX
-
-    px += dt*vx
-    py += dt*vy
-    pz += dt*vz
-
-    # ───── contact moment (world) → body ─────────────────────────────────
-    rx, ry, rz = R00*arm_len, R10*arm_len, R20*arm_len   # lever arm (world)
-
-    Mx_c = ry*Fz_s - rz*Fy_s
-    My_c = rz*Fx_s - rx*Fz_s
-    Mz_c = rx*Fy_s - ry*Fx_s
-
-    Mx_b = R00*Mx_c + R10*My_c + R20*Mz_c
-    My_b = R01*Mx_c + R11*My_c + R21*Mz_c
-    Mz_b = R02*Mx_c + R12*My_c + R22*Mz_c
-
-    # ───── rotational motion (semi-implicit) ─────────────────────────────
-    Mx = u[3] + Mx_b
-    My = u[4] + My_b
-    Mz = u[5] + Mz_b
-
-    wx += dt * ( (Mx + (Iyy - Izz)*wy*wz) / Ixx )
-    wy += dt * ( (My + (Izz - Ixx)*wx*wz) / Iyy )
-    wz += dt * ( (Mz + (Ixx - Iyy)*wx*wy) / Izz )
-
-    if wx >  W_MAX: wx =  W_MAX
-    if wx < -W_MAX: wx = -W_MAX
-    if wy >  W_MAX: wy =  W_MAX
-    if wy < -W_MAX: wy = -W_MAX
-    if wz >  W_MAX: wz =  W_MAX
-    if wz < -W_MAX: wz = -W_MAX
-
-    # ───── Euler-angle kinematics (updated ω) ────────────────────────────
-    sphi, cphi = math.sin(phi), math.cos(phi)
-    sth,  cth  = math.sin(th),  math.cos(th) + eps
-    tan_th     = sth / cth
-
-    phi += dt*(wx + sphi*tan_th*wy + cphi*tan_th*wz)
-    th  += dt*(cphi*wy - sphi*wz)
-    psi += dt*(sphi/cth*wy + cphi/cth*wz)
-
-    # ───── write back ────────────────────────────────────────────────────
-    x[PX], x[PY], x[PZ]       = px,  py,  pz
-    x[VX], x[VY], x[VZ]       = vx,  vy,  vz
-    x[ROLL], x[PITCH], x[YAW] = phi, th, psi
-    x[WX], x[WY], x[WZ]       = wx,  wy,  wz
-    x[FX], x[FY], x[FZ]       = Fx_s, Fy_s, Fz_s
-
-    if f_dot_out is not None:
-        f_dot_out[0] = f_dot_x
-        f_dot_out[1] = f_dot_y
-        f_dot_out[2] = f_dot_z
-
+  x[6] += dt*(x[9] + x[10]*(math.sin(x[6])*math.tan(x[7])) + x[11]*(math.cos(x[6])*math.tan(x[7])))
+  x[7] += dt*( x[10]*math.cos(x[6]) - x[11]*math.sin(x[6]))
+  x[8] += dt*( x[10]*math.sin(x[6])/math.cos(x[7]) + x[11]*math.cos(x[6])/math.cos(x[7]))
+  
+  x[9]  += dt*((1/I_xx) * (mx_total + I_yy * x[10] * x[11] - I_zz * x[10] * x[11]))
+  x[10] += dt*((1/I_yy) * (my_total - I_xx * x[9] *  x[11] + I_zz * x[9] *  x[11]))
+  x[11] += dt*((1/I_zz) * (mz_total + I_xx * x[9] *  x[10] - I_yy * x[9] *  x[10]))
 
 
 
@@ -347,8 +237,8 @@ class MPPI_Numba(object):
     self.ou_scale = 1
     self.d_ou_scale = 0.5
     self.sys_noise = np.array([0.1, 0.1, 0.1, 0.001, 0.001, 0.001])
-    self.umin = np.array([-20, -20, -40, -0.1, -0.1, -0.1])  # Example minimum control values
-    self.umax = np.array([20, 20, 40, 0.1, 0.1, 0.1])  # Example maximum control values
+    self.umin = np.array([-20, -20, -40, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1])  # Example minimum control values
+    self.umax = np.array([20, 20, 40, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])  # Example maximum control values
     self.last_controls = np.zeros((self.num_control_rollouts, self.num_steps, self.num_controls), dtype=np.float32)
     self.last_controls_d = cuda.to_device(self.last_controls.astype(np.float32))
     # other params , A, B, C, D, ABC_sq, contact_normal_sq, contact_normal
@@ -487,8 +377,8 @@ class MPPI_Numba(object):
             self.noise_samples_d)
 
       else:
-        dist_to_goal = np.abs(self.params['xgoal'][:6] - self.params['x0'][:6])
-        u_std_scaled = np.minimum(u_std_d, coef_dist_to_goal * dist_to_goal)  # Scale noise std by distance (TODO: use this indstead of u_std_d and tune)
+        # dist_to_goal = np.abs(self.params['xgoal'][:6] - self.params['x0'][:6])
+        # u_std_scaled = np.minimum(u_std_d, coef_dist_to_goal * dist_to_goal)  # Scale noise std by distance (TODO: use this indstead of u_std_d and tune)
         self.sample_noise_numba[self.num_control_rollouts, self.num_steps](
             self.rng_states_d, u_std_d, self.noise_samples_d)
         
@@ -617,11 +507,11 @@ class MPPI_Numba(object):
     goal_reached = False
     goal_tolerance_d2 = goal_tolerance_d*goal_tolerance_d
     dist_to_goal2 = 1e9
-    u_nom =  cuda.local.array(6, numba.float32)
+    u_nom =  cuda.local.array(9, numba.float32)
 
     # Initialize previous control input
-    u_prev = cuda.local.array(6, numba.float32)
-    for i in range(6):
+    u_prev = cuda.local.array(9, numba.float32)
+    for i in range(9):
       u_prev[i] = u_cur_d[0, i]
 
     # printed=False
@@ -634,6 +524,9 @@ class MPPI_Numba(object):
       u_nom[3] = u_cur_d[t, 3] + noise_samples_d[bid, t, 3]
       u_nom[4] = u_cur_d[t, 4] + noise_samples_d[bid, t, 4]
       u_nom[5] = u_cur_d[t, 5] + noise_samples_d[bid, t, 5]
+      u_nom[6] = u_cur_d[t, 6] + noise_samples_d[bid, t, 6]
+      u_nom[7] = u_cur_d[t, 7] + noise_samples_d[bid, t, 7]
+      u_nom[8] = u_cur_d[t, 8] + noise_samples_d[bid, t, 8]
 
       # TODO: implement control limits  
       u_noisy = u_nom
@@ -642,18 +535,26 @@ class MPPI_Numba(object):
       cf = cuda.local.array(3, float32)  # local array to hold contact force
       pen = cuda.local.array(1, float32)  # local array to hold contact force
       # Forward simulate
-      dynamics_update_lcp_contact_force_cf(x_curr, u_noisy, dt_d, CONTACT_NORMAL, inertia_mass_d, plane_d, cf, pen)
-      contact = 1.0 if pen[0] < 0.1 else 0.0
-      # contact = 1.0 
+      dynamics_update(x_curr, u_noisy, dt_d, CONTACT_NORMAL, inertia_mass_d, plane_d, cf, pen)
+      contact = 1.0 if pen[0] < 0.2 else 0.0
+      A, B, C, Dp = plane_d
+      eps      = 1e-8
+      arm_len  = 1.2            # [m] body → end-eff
+      n_len = math.sqrt(A*A + B*B + C*C) + eps
+      nx, ny, nz = A/n_len, B/n_len, C/n_len
+      vpen = nx*x_curr[3] + ny*x_curr[4] + nz*x_curr[5]
+      contact = 1.0 
       # If else statements will be expensive
       dist_to_goal2 = cost_weights_d[0]*((xgoal_d[0]-x_curr[0])**2) + cost_weights_d[1]*((xgoal_d[1]-x_curr[1])**2) + cost_weights_d[2]*((xgoal_d[2]-x_curr[2])**2) \
                     + cost_weights_d[3]*((xgoal_d[3]-x_curr[3])**2) + cost_weights_d[4]*((xgoal_d[4]-x_curr[4])**2) + cost_weights_d[5]*((xgoal_d[5]-x_curr[5])**2)\
                     + cost_weights_d[6]*((xgoal_d[6]-x_curr[6])**2) + cost_weights_d[7]*((xgoal_d[7]-x_curr[7])**2) + cost_weights_d[8]*((xgoal_d[8]-x_curr[8])**2)\
                     + cost_weights_d[9]*((xgoal_d[9]-x_curr[9])**2) + cost_weights_d[10]*((xgoal_d[10]-x_curr[10])**2) + cost_weights_d[11]*(xgoal_d[11]-x_curr[11])**2\
-                    + cost_weights_d[12]*(50*(u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
+                    + cost_weights_d[12]*((u_nom[0]**2) + (u_nom[1]**2) + ((u_nom[2] - inertia_mass_d[3]*9.81)**2))\
                     + cost_weights_d[13]*((u_nom[3]**2) + (u_nom[4]**2) + (u_nom[5]**2))\
-                    + cost_weights_d[17] * ((x_curr[12] + fgoal_d[0]) ** 2) * contact + cost_weights_d[18] * ((x_curr[13] + fgoal_d[2]) ** 2) * contact + cost_weights_d[19] * ((x_curr[14] + fgoal_d[2]) ** 2) * contact
+                    + cost_weights_d[17] * ((x_curr[12] + fgoal_d[0]) ** 2) * contact + cost_weights_d[18] * ((x_curr[13] + fgoal_d[1]) ** 2) * contact + cost_weights_d[19] * ((x_curr[14] + fgoal_d[2]) ** 2) * contact \
                     
+      if pen[0] < 0.2 and vpen < -0.01:
+        costs_d[bid] += 10000000 * (vpen * vpen)
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
 
       if dist_to_goal2<= goal_tolerance_d2:
@@ -740,6 +641,9 @@ class MPPI_Numba(object):
         cuda.atomic.add(u_cur_d, (t, 3), weights_d[i]*noise_samples_d[i, t, 3])
         cuda.atomic.add(u_cur_d, (t, 4), weights_d[i]*noise_samples_d[i, t, 4])
         cuda.atomic.add(u_cur_d, (t, 5), weights_d[i]*noise_samples_d[i, t, 5])
+        cuda.atomic.add(u_cur_d, (t, 6), weights_d[i]*noise_samples_d[i, t, 6])
+        cuda.atomic.add(u_cur_d, (t, 7), weights_d[i]*noise_samples_d[i, t, 7])
+        cuda.atomic.add(u_cur_d, (t, 8), weights_d[i]*noise_samples_d[i, t, 8])
     cuda.syncthreads()
 
     # Blocks crop the control together
@@ -821,7 +725,7 @@ class MPPI_Numba(object):
 
 # Kernel wrapper that calls dynamics_update on a single state/control pair.
 @cuda.jit
-def dynamics_update_wrapper(x_in, u, dt, contact_normal, inertia_mass, plane, x_out, cf_out):
+def dynamics_update_wrapper(x_in, u, dt, contact_normal, inertia_mass, plane, x_out, cf_out, pen):
     # x_in: device array of shape (12,)
     # u: device array of shape (6,)
     # dt: float32
@@ -835,8 +739,8 @@ def dynamics_update_wrapper(x_in, u, dt, contact_normal, inertia_mass, plane, x_
     
     # dynamics_update_contact(local_x, u, dt, contact_normal, inertia_mass, cf_out)
     # dynamics_update(local_x, u, dt, contact_normal, inertia_mass, cf_out)
-    pen = cuda.local.array(1, float32)
-    dynamics_update_lcp_contact_force_cf(local_x, u, dt, contact_normal, inertia_mass, plane, cf_out, pen)
+    
+    dynamics_update(local_x, u, dt, contact_normal, inertia_mass, plane, cf_out, pen)
     for i in range(15):
         x_out[i] = local_x[i]
 
@@ -852,8 +756,13 @@ def simulate_dynamics(x, u, dt, contact_normal, inertia_mass, plane):
     u_d = cuda.to_device(u)
     x_out_d = cuda.device_array((15,), dtype=np.float32)
     cf_out_d = cuda.device_array((3,), dtype=np.float32)
-    dynamics_update_wrapper[1, 1](x_in_d, u_d, dt, contact_normal, inertia_mass, plane, x_out_d, cf_out_d)
-    return (x_out_d.copy_to_host(), cf_out_d.copy_to_host())
+    pen = cuda.device_array((1,), dtype=np.float32)
+    dynamics_update_wrapper[1, 1](x_in_d, u_d, dt, contact_normal, inertia_mass, plane, x_out_d, cf_out_d, pen)
+    
+    contact = 0
+    if pen[0] < 0.0:
+      contact = 1
+    return (x_out_d.copy_to_host(), cf_out_d.copy_to_host(), contact)
 
 def dynamics_update_euler(state, control_inputs, cf, dt, mppi_params):
   """
@@ -864,7 +773,7 @@ def dynamics_update_euler(state, control_inputs, cf, dt, mppi_params):
     - updates the state for the entire dt
   """
   # simulate_dynamics() is your GPU wrapper that calls dynamics_update_lcp_contact_force once
-  next_state, next_cf = simulate_dynamics(
+  next_state, next_cf, contact = simulate_dynamics(
       state,
       control_inputs,
       dt,
@@ -872,28 +781,28 @@ def dynamics_update_euler(state, control_inputs, cf, dt, mppi_params):
       mppi_params['inertia_mass'],
       mppi_params['plane']
   )
-  return (next_state, next_cf)
+  return (next_state, next_cf, contact)
 
 if __name__ == "__main__":
-    num_controls = 6
+    num_controls = 9
     num_states = 15
     cfg = Config(
             T=1,                # Horizon length in seconds
-            dt=0.08,        # Time step
+            dt=0.2,        # Time step
             num_control_rollouts=1024*4,
-            num_controls=6,
-            num_states=15,
+            num_controls=num_controls,
+            num_states=num_states,
             num_vis_state_rollouts=1,
             seed=1
         )
     # x0 = np.array([-0.5,0, 0, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    x0 = np.array([-1.5,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 0, 0, 0])
+    x0 = np.array([8.5,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    xgoal = np.array([9.3,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 10, 0, 0])
-    fgoal = np.array([5, 0, 0])
+    xgoal = np.array([9.1,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 10, 0, 0])
+    fgoal = np.array([10, 0, 0])
 
     
     mppi_params = {
@@ -906,7 +815,7 @@ if __name__ == "__main__":
             'dist_weight': 2000,
             'lambda_weight': 10,
             'num_opt': 8,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
@@ -915,7 +824,7 @@ if __name__ == "__main__":
                 55500, 55500, 255000,
                 1, 1, 1,
                 1, 100, 1, 100, 200,
-                10000, 10000, 10000
+                500, 500, 500
             ]),
             "inertia_mass": np.array([0.21, 0.21, 0.4, 6.15])
         }
@@ -948,9 +857,9 @@ if __name__ == "__main__":
         gravity_body = np.dot(R.T, gravity_vector_world)  # Rotate gravity to body frame
 
         uhist[t] = u_curr.copy()
-
+        contact = 0
         # Simulate state forward 
-        xhist[t+1, :], fhist[t+1, :] = dynamics_update_euler(xhist[t, :], u_curr, fhist[t, :], cfg.dt, mppi_params)
+        xhist[t+1, :], fhist[t+1, :], contact = dynamics_update_euler(xhist[t, :], u_curr, fhist[t, :], cfg.dt, mppi_params)
 
         print(t)
         # Update MPPI state (x0, useq)
