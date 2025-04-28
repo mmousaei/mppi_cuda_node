@@ -141,21 +141,33 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass, plane, cf_out, pen_o
     x[12] += dt * u[6]   # ḟ_x
     x[13] += dt * u[7]   # ḟ_y
     x[14] += dt * u[8]   # ḟ_z
+
+    rx = ee_x - x[0]
+    ry = ee_y - x[1]
+    rz = ee_z - x[2]
+
+    m_x = ry * x[14] - rz * x[13]
+    m_y = rz * x[12] - rx * x[14]
+    m_z = rx * x[13] - ry * x[12]
   else:
     contact = 0
     x[12] = 0.0
     x[13] = 0.0
     x[14] = 0.0
 
+    m_x = 0
+    m_y = 0
+    m_z = 0
+
   c = -300
   g = 9.81
 
-  fx_total = u[0] #+ x[12]
-  fy_total = u[1] #+ x[13]
-  fz_total = u[2] #+ x[14]
-  mx_total = u[3] + contact_moment_x 
-  my_total = u[4] + contact_moment_y 
-  mz_total = u[5] + contact_moment_z  
+  fx_total = u[0] + x[12]
+  fy_total = u[1] + x[13]
+  fz_total = u[2] + x[14]
+  mx_total = u[3] + m_x  
+  my_total = u[4] + m_y  
+  mz_total = u[5] + m_z   
 
   
 
