@@ -85,13 +85,13 @@ class MPPIControllerNode(object):
             'dist_weight': 2000,
             'lambda_weight': 10,
             'num_opt': 9,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]),
+            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005, 0.1, 0.1, 0.1]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
                 19550, 19550, 24840,
                 1, 1, 1,
-                55500, 55500, 55500,
+                95500, 95500, 95500,
                 1, 1, 1,
                 1, 100, 1, 100, 200,
                 500, 500, 500
@@ -139,10 +139,17 @@ class MPPIControllerNode(object):
         # Set up dynamic reconfigure server for tuning MPC parameters
         # self.dyn_server = Server(MPPIParamsConfig, self.dynamic_reconfigure_callback)
 
-        # Deadband
-        self.MPPI_mode = np.array(['ON', 'ON', 'ON'], dtype='<U3')
-        self.r_on = np.array([0.05, 0.05, 0.05])
-        self.r_off = np.array([0.02, 0.02, 0.02])
+       # Deadband
+        #   indices 0,1,2 for position (x,y,z) and 6,7,8 for attitude (roll, pitch, yaw)
+        self.deadband_indices = [0, 1, 2, 6, 7, 8]
+        self.MPPI_mode = np.array(['ON'] * 6, dtype='<U3')
+        # Deadband thresholds
+        self.r_on = np.array([0.1, 0.1, 0.1, 0.08, 0.08, 0.08])
+        self.r_off = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
+        self.deadband_timer = np.zeros(6)
+        # Initialize with NaNs so we can detect the first cycle in deadband
+        self.deadband_initial_state = np.full(6, np.nan)
+        self.deadband_transition_duration = np.array([1]*3 + [3]*3)
 
     def initialize_hexarotor_parameters(self):
         # Set your hexarotor parameters (tweak as needed)
@@ -348,23 +355,37 @@ class MPPIControllerNode(object):
         curr  = self.current_state     
         next_ = self.mpc_target        
         
-        # Update per-dimension ON/OFF state
-        for i in range(3):  # i=0->x,1->y,2->z
-            if self.MPPI_mode[i] == 'OFF':
-                # Currently OFF => we only switch ON if we exceed r_on
-                if abs(curr[i] - xgoal[i]) > self.r_on[i]:
-                    self.MPPI_mode[i] = 'ON'
-            elif self.MPPI_mode[i] == 'ON':
-                # Currently ON => we switch OFF if we go below r_off
-                if abs(curr[i] - xgoal[i]) < self.r_off[i]:
-                    self.MPPI_mode[i] = 'OFF'
+        # Update per-dimension ON/OFF state for the 6 deadband dimensions
+        for j, idx in enumerate(self.deadband_indices):
+            if self.MPPI_mode[j] == 'OFF':
+                # If currently OFF, check if we should re-enable MPPI control
+                if abs(curr[idx] - xgoal[idx]) > self.r_on[j]:
+                    self.MPPI_mode[j] = 'ON'
+            elif self.MPPI_mode[j] == 'ON':
+                # If currently ON, switch OFF if error is small
+                if abs(curr[idx] - xgoal[idx]) < self.r_off[j]:
+                    self.MPPI_mode[j] = 'OFF'
 
-        # Build the final target state dimension by dimension
-        #    If OFF => lock dimension to xgoal, otherwise use next_.
+        # Initialize final_target with the current computed target
         final_target = np.copy(next_)
-        for i in range(3):
-            if self.MPPI_mode[i] == 'OFF':
-                final_target[i] = xgoal[i]
+        
+        # For each deadband dimension (positions and attitudes)
+        for j, idx in enumerate(self.deadband_indices):
+            if self.MPPI_mode[j] == 'ON':
+                # When MPPI is active, use the computed target.
+                final_target[idx] = next_[idx]
+                # Reset the deadband timer and initial state.
+                self.deadband_timer[j] = 0.0
+                self.deadband_initial_state[j] = next_[idx]
+            else:
+                # When MPPI is off, perform a quadratic ease-out transition toward the final goal.
+                if np.isnan(self.deadband_initial_state[j]):
+                    self.deadband_initial_state[j] = next_[idx]
+                self.deadband_timer[j] += self.cfg.dt
+                t = min(self.deadband_timer[j] / self.deadband_transition_duration[j], 1.0)
+                # Quadratic ease-out: starts fast and slows down toward the target.
+                weight = 1 - (1 - t)**2
+                final_target[idx] = (1 - weight) * self.deadband_initial_state[j] + weight * xgoal[idx]
         
 
         target_msg = PoseStamped()

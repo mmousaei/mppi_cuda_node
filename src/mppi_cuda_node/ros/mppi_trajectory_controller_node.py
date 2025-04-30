@@ -134,7 +134,7 @@ class MPPIControllerNode(object):
         self.deadband_indices = [0, 1, 2, 6, 7, 8]
         self.MPPI_mode = np.array(['ON'] * 6, dtype='<U3')
         # Deadband thresholds
-        self.r_on = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+        self.r_on = np.array([0.1, 0.1, 0.1, 0.08, 0.08, 0.08])
         self.r_off = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
         self.deadband_timer = np.zeros(6)
         # Initialize with NaNs so we can detect the first cycle in deadband
