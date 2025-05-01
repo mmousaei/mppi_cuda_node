@@ -566,7 +566,7 @@ class MPPI_Numba(object):
                     + cost_weights_d[17] * ((x_curr[12] + fgoal_d[0]) ** 2) * contact + cost_weights_d[18] * ((x_curr[13] + fgoal_d[1]) ** 2) * contact + cost_weights_d[19] * ((x_curr[14] + fgoal_d[2]) ** 2) * contact \
                     
       if pen[0] < 0.2 and vpen < -0.01:
-        costs_d[bid] += 10000000 * (vpen * vpen)
+        costs_d[bid] += 500 * (vpen * vpen)
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
 
       if dist_to_goal2<= goal_tolerance_d2:
