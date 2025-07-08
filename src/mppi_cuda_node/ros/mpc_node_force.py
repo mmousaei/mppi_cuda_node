@@ -47,6 +47,7 @@ class MPCControllerNode(object):
         # ---------------------------------
         # a) Force measurement & desired force in 3D
         self.current_force_meas = np.zeros(3)   # [Fx_meas, Fy_meas, Fz_meas]
+        self.current_torque_meas = np.zeros(3)   # [Fx_meas, Fy_meas, Fz_meas]
         self.desired_force_3d   = np.array([0.0, 0.0, -0.9805])
 
         # b) PID gains (you can set separate gains per axis, but we'll do scalars here)
@@ -58,8 +59,16 @@ class MPCControllerNode(object):
         self.force_integrator_3d  = np.zeros(3)
         self.force_error_prev_3d  = np.zeros(3)
 
-        self.offset_x = 0.0
-        self.offset_x_dot = 0.0
+        # --- with 3D vectors:
+        self.offset       = np.zeros(3)
+        self.offset_dot   = np.zeros(3)
+
+        # admittance gains as vectors (or scalars if you prefer isotropic)
+        self.k_admittance = np.array([10.0, 10.0, 10.0])
+        self.k_stiffness  = np.array([100.0,100.0,100.0])
+        self.c_damping    = np.array([160.0,160.0,160.0])
+        self._sum_ff_num = 0.0
+        self._sum_ff_den = 0.0
 
     
         # ---------------------------------
@@ -147,10 +156,7 @@ class MPCControllerNode(object):
         Store the measured 3D force from WrenchStamped.
         Adjust if your sensor orientation is different.
         """
-        # Update the current force measurement
-        self.current_force_meas[0] = msg.wrench.force.x
-        self.current_force_meas[1] = msg.wrench.force.y
-        self.current_force_meas[2] = msg.wrench.force.z
+        
 
         # Convert the incoming measurement into numpy arrays
         force = np.array([msg.wrench.force.x,
@@ -194,7 +200,7 @@ class MPCControllerNode(object):
         # Compute the median of the moving average results (per component)
         median_force = np.median(np.array(self._moving_avg_buffer_forces), axis=0)
         # Optionally, compute median for torque:
-        # median_torque = np.median(np.array(self._moving_avg_buffer_torques), axis=0)
+        median_torque = np.median(np.array(self._moving_avg_buffer_torques), axis=0)
 
         # Create and publish the filtered force message
         filtered_ft_msg = WrenchStamped()
@@ -202,7 +208,21 @@ class MPCControllerNode(object):
         filtered_ft_msg.wrench.force.x = median_force[0]
         filtered_ft_msg.wrench.force.y = median_force[1]
         filtered_ft_msg.wrench.force.z = median_force[2]
+        filtered_ft_msg.wrench.torque.x = median_torque[0]
+        filtered_ft_msg.wrench.torque.y = median_torque[1]
+        filtered_ft_msg.wrench.torque.z = median_torque[2]
         self.filtered_ft.publish(filtered_ft_msg)
+
+        # read raw force in body frame
+        force_body = np.array([median_force[0],
+                               median_force[1],
+                               median_force[2] + 0.098])
+        rot = Rotation.from_euler('xyz', self.current_state[6:9])
+
+        # Update the current force measurement
+        self.current_force_meas = rot.apply(force_body)
+        # self.current_torque_meas = np.array([median_torque[0], median_torque[1], median_torque[2]])
+        self.current_torque_meas = np.array([msg.wrench.torque.x, msg.wrench.torque.y, -msg.wrench.torque.z])
 
 
     def wrench_target_callback(self, msg):
@@ -399,23 +419,38 @@ class MPCControllerNode(object):
     def spin(self):
         rate = rospy.Rate(self.mpc_rate_hz)
         dt = 1.0 / self.mpc_rate_hz
-
+        K_torque_ff = 0.0
         while not rospy.is_shutdown():
             
             self.mpc_target = self.mpc_target_base.copy()
 
-            f_x_error = self.desired_force_3d[0] - self.current_force_meas[0]
-            k_admittance = 10
-            k_stiffness = 100
-            c_damping = 160
-    
-            offset_accel = k_admittance * f_x_error - c_damping * self.offset_x_dot - k_stiffness * self.offset_x
-            self.offset_x_dot += offset_accel * self.mpc_params['dt']
-            self.offset_x += self.offset_x_dot * self.mpc_params['dt']
-            self.mpc_target[0] += self.offset_x
+            force_error = self.desired_force_3d - self.current_force_meas
+            
+
+            
+            offset_accel = (
+                self.k_admittance * force_error
+                - self.c_damping    * self.offset_dot
+                - self.k_stiffness  * self.offset
+            )
+            self.offset_dot += offset_accel * self.mpc_params['dt']
+            self.offset     += self.offset_dot  * self.mpc_params['dt']
+            
+
+            # apply the 3D offset to the position entries (x,y,z)
+            # self.mpc_target[0:3] += self.offset
+            self.mpc_target[0] += self.offset[0]
 
             # 1) Run MPC
             u_mpc = self.run_mpc()
+            # K_torque_ff = np.array([8, 0, 0])
+            # u_mpc[3:] -= (K_torque_ff*self.current_torque_meas)
+            # self._sum_ff_num += u_mpc[4] * self.current_torque_meas[1]
+            # self._sum_ff_den += self.current_torque_meas[1] * self.current_torque_meas[1]
+            # if self._sum_ff_den > 1e-6:
+            #     K_torque_ff = self._sum_ff_num / self._sum_ff_den
+            # print("K_torque_ff: ", K_torque_ff)
+            # u_mpc[4] -= (K_torque_ff*self.current_torque_meas[1])
 
             # 2) Normalize the MPC output
             u_mpc_norm = self.normalize_control_inputs_mpc(u_mpc.copy())

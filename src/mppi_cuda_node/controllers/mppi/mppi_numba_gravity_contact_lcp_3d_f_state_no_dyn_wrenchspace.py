@@ -190,7 +190,41 @@ def dynamics_update(x, u, dt, contact_normal, inertia_mass, plane, cf_out, pen_o
   x[10] += dt*((1/I_yy) * (my_total - I_xx * x[9] *  x[11] + I_zz * x[9] *  x[11]))
   x[11] += dt*((1/I_zz) * (mz_total + I_xx * x[9] *  x[10] - I_yy * x[9] *  x[10]))
 
+@cuda.jit(device=True, inline=True)
+def lookup_radius_dev(roll, pitch, fx, fy, fz, radius):
+    # assume radius.shape == (Wx, Wy, Wz, Rn, Pn)
+    Wx = radius.shape[0]
+    Wy = radius.shape[1]
+    Wz = radius.shape[2]
+    Rn = radius.shape[3]
+    Pn = radius.shape[4]
 
+    # same grid‐params as sweep_full_wrench_space()
+    rp0, drp = -20.0, 1.0
+    pp0, dpp = -20.0, 1.0
+    w0,  dW  =  0.0, 0.5
+
+    # compute nearest‐neighbor indices
+    ir  = int(math.floor((roll   - rp0)/drp + 0.5))
+    ip  = int(math.floor((pitch  - pp0)/dpp + 0.5))
+    iwx = int(math.floor((fx     - w0 )/dW  + 0.5))
+    iwy = int(math.floor((fy     - w0 )/dW  + 0.5))
+    iwz = int(math.floor((fz     - w0 )/dW  + 0.5))
+
+    # clamp into [0, dim−1]
+    if   ir < 0:     ir = 0
+    elif ir >= Rn:   ir = Rn - 1
+    if   ip < 0:     ip = 0
+    elif ip >= Pn:   ip = Pn - 1
+    if   iwx < 0:    iwx = 0
+    elif iwx >= Wx:  iwx = Wx - 1
+    if   iwy < 0:    iwy = 0
+    elif iwy >= Wy:  iwy = Wy - 1
+    if   iwz < 0:    iwz = 0
+    elif iwz >= Wz:  iwz = Wz - 1
+
+    # index exactly as in your CPU version: (wind_x, wind_y, wind_z, roll, pitch)
+    return radius[iwx, iwy, iwz, ir, ip]
 
 class MPPI_Numba(object):
   
@@ -263,6 +297,15 @@ class MPPI_Numba(object):
     self.D = -self.A * self.contact_point[0] - self.B * self.contact_point[1] - self.C * self.contact_point[2]
     self.ABC_sq = math.sqrt(self.A**2 + self.B**2 + self.C**2)
     self.device_var_initialized = False
+    data = np.load('/home/dream_reaper/workspace/aerial_manipulation_mppi_realworld/full_wrench_space.npz')
+    # self.omniradius_data = data['radius'].astype(np.float32)
+    self.omniradius_data = np.zeros(5)
+    #  = cuda.to_device(radius_np)
+    # self.R, self.P, self.W, _, _ = self.omniradius_data.shape
+    # grid metadata
+    self.rp0, self.drp = -20.0, 1.0
+    self.pp0, self.dpp = -20.0, 1.0
+    self.w0,  self.dW  =  0.0, 0.5
     self.reset()
 
     
@@ -339,6 +382,7 @@ class MPPI_Numba(object):
     dt_d = np.float32(self.params['dt'])
     cost_weights_d = cuda.to_device(self.params['weights'].astype(np.float32))
     inertia_mass_d = cuda.to_device(self.params['inertia_mass'].astype(np.float32))
+    radius_d = cuda.to_device(self.omniradius_data.astype(np.float32))
 
     if "obstacle_positions" in self.params:
       obs_pos_d = cuda.to_device(self.params['obstacle_positions'].astype(np.float32))
@@ -354,7 +398,7 @@ class MPPI_Numba(object):
     return vrange_d, wrange_d, xgoal_d, fgoal_d, plane_d,\
            goal_tolerance_d, lambda_weight_d, \
            u_std_d, x0_d, dt_d, obs_cost_d, obs_pos_d, obs_r_d, \
-           cost_weights_d, inertia_mass_d
+           cost_weights_d, inertia_mass_d, radius_d
 
 
   def solve_with_nominal_dynamics(self):
@@ -363,7 +407,7 @@ class MPPI_Numba(object):
     """
     
     vrange_d, wrange_d, xgoal_d, fgoal_d, plane_d, goal_tolerance_d, lambda_weight_d, \
-           u_std_d, x0_d, dt_d, obs_cost_d, obs_pos_d, obs_r_d, cost_weights_d, inertia_mass_d = self.move_mppi_task_vars_to_device()
+           u_std_d, x0_d, dt_d, obs_cost_d, obs_pos_d, obs_r_d, cost_weights_d, inertia_mass_d, radius_d = self.move_mppi_task_vars_to_device()
    
     dist_to_goal_d = cuda.device_array(6, dtype=np.float32)  # Add distance to goal for each control
     coef_dist_to_goal = np.array([1, 1, 5, 0.03, 0.03, 0.03], dtype=np.float32)*0.1  # Coefficients for distance scaling
@@ -396,11 +440,7 @@ class MPPI_Numba(object):
         
       # print(f'u_curr_d: [{self.u_cur_d[0,0]}, {self.u_cur_d[0,1]}, {self.u_cur_d[0,2]}, {self.u_cur_d[0,3]}, {self.u_cur_d[0,4]}, {self.u_cur_d[0,5]}]')
       # Rollout and compute mean or cvar
-      threads_per_block = 128                                   # 128 threads
-      blocks_per_grid   = (self.num_control_rollouts +
-                          threads_per_block - 1) // threads_per_block
-      # self.rollout_numba[self.num_control_rollouts, 1](
-      self.rollout_numba[blocks_per_grid, threads_per_block](
+      self.rollout_numba[self.num_control_rollouts, 1](
         inertia_mass_d,
         vrange_d,
         wrange_d,
@@ -419,6 +459,7 @@ class MPPI_Numba(object):
         cost_weights_d,
         self.noise_samples_d,
         self.u_cur_d,
+        radius_d,
         # results
         self.costs_d
       )
@@ -504,21 +545,16 @@ class MPPI_Numba(object):
           cost_weights_d,
           noise_samples_d,
           u_cur_d,
+          radius_d,
           costs_d):
     """
     There should only be one thread running in each block, where each block handles a single sampled control sequence.
     """
 
     # Get block id and thread id
-    # bid = cuda.blockIdx.x   # index of block
-    # tid = cuda.threadIdx.x  # index of thread within a block
-    bid = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x   
-    if bid >= noise_samples_d.shape[0]:      # extra threads discard
-        return
-    
+    bid = cuda.blockIdx.x   # index of block
+    tid = cuda.threadIdx.x  # index of thread within a block
     costs_d[bid] = 0.0
-
-
 
     # Explicit unicycle update and map lookup
     # From here on we assume grid is properly padded so map lookup remains valid
@@ -578,6 +614,18 @@ class MPPI_Numba(object):
       if pen[0] < 0.2 and vpen < -0.01:
         costs_d[bid] += 500 * (vpen * vpen)
       costs_d[bid]+= stage_cost(dist_to_goal2, dist_weight_d)
+  
+      # Wrenchspace cost
+      # omni_r = lookup_radius_dev(x_curr[6]*180.0/math.pi, x_curr[7]*180.0/math.pi, x_curr[12]*180.0/math.pi, -x_curr[13], x_curr[14], radius_d)
+      # omni_w = 1000
+      # omni_w = 0
+      # costs_d[bid] += omni_w / (omni_r + 1e-6)
+      
+      delta_r = max(0.0, abs(x_curr[6]) - 0.1)
+      costs_d[bid] += 1e4 * delta_r * delta_r
+
+      delta_p = max(0.0, abs(x_curr[6]) - 0.1)
+      costs_d[bid] += 1e4 * delta_p * delta_p
 
       if dist_to_goal2<= goal_tolerance_d2:
         goal_reached = True
@@ -589,6 +637,10 @@ class MPPI_Numba(object):
       costs_d[bid] += cost_weights_d[14]*lambda_weight_d*(
               (u_cur_d[t,0]/(u_std_d[0]**2))*noise_samples_d[bid, t,0] + (u_cur_d[t,1]/(u_std_d[1]**2))*noise_samples_d[bid, t, 1] + (u_cur_d[t,2]/(u_std_d[2]**2))*noise_samples_d[bid, t, 2]\
                  + cost_weights_d[15]*((u_cur_d[t,3]/(u_std_d[3]**2))*noise_samples_d[bid, t, 3] + (u_cur_d[t,4]/(u_std_d[4]**2))*noise_samples_d[bid, t, 4] + (u_cur_d[t,5]/(u_std_d[5]**2))*noise_samples_d[bid, t, 5]))
+  
+
+    
+  
   @staticmethod
   @cuda.jit(fastmath=True)
   def update_useq_numba(
@@ -810,7 +862,7 @@ if __name__ == "__main__":
     num_states = 15
     cfg = Config(
             T=1,                # Horizon length in seconds
-            dt=0.2,        # Time step
+            dt=0.1,        # Time step
             num_control_rollouts=1024*4,
             num_controls=num_controls,
             num_states=num_states,
@@ -818,13 +870,15 @@ if __name__ == "__main__":
             seed=1
         )
     # x0 = np.array([-0.5,0, 0, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    x0 = np.array([8.5,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 0, 0, 0])
+    x0 = np.array([1.5,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 0, 0, 0])
+    # x0 = np.array([8.5,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
     # xgoal = np.array([2,-1, 3, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
     # xgoal = np.array([0,0, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0])
-    # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.1, -0.1, -0.3, 0, 0, 0])
-    xgoal = np.array([9.1,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 10, 0, 0])
-    fgoal = np.array([10, 0, 0])
+    # xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.4, -0.1, -0.3, 0, 0, 0])
+    xgoal = np.array([0.2,-0.2, 0.8, 0, 0, 0, 0.0, -0.4, -0.0, 0, 0, 0])
+    # xgoal = np.array([9.1,-1, 0.8, 0, 0, 0, 0.0, -0.0, -0.0, 0, 0, 0, 10, 0, 0])
+    fgoal = np.array([30, 0, 0])
 
     
     mppi_params = {
@@ -841,9 +895,9 @@ if __name__ == "__main__":
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
-                19550, 19550, 44840,
+                59550, 59550, 44840,
                 1, 1, 1,
-                55500, 55500, 255000,
+                555000, 555000, 255000,
                 1, 1, 1,
                 1, 100, 1, 100, 200,
                 500, 500, 500
@@ -917,6 +971,8 @@ if __name__ == "__main__":
         ax.set_ylabel("N")
         ax.set_xlabel("step")
         ax.set_title(f"F_contact[{idx}]")
+
+    print("f_contact: ", xhist[-1, idx+12])
 
     plt.tight_layout()
     plt.show()

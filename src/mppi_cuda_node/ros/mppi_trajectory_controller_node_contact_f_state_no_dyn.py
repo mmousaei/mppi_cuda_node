@@ -18,7 +18,7 @@ from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped, WrenchStamped, PoseStamped, Vector3Stamped
 from tf.transformations import euler_from_quaternion
 from scipy.signal import butter
-
+import time
 
 # --- MPPI imports ---
 # from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
@@ -64,9 +64,9 @@ class MPPIControllerNode(object):
 
         # ----- MPPI Setup -----
         self.cfg = Config(
-            T=1.0,            # Horizon length in seconds
-            dt=0.08,         # Time step (seconds)
-            num_control_rollouts=1024*4,
+            T=0.6,            # Horizon length in seconds
+            dt=0.02,         # Time step (seconds)
+            num_control_rollouts=1024*2,
             num_controls=9,
             num_states=15,
             num_vis_state_rollouts=1,
@@ -79,13 +79,13 @@ class MPPIControllerNode(object):
             'x0': np.concatenate((self.current_state, np.array([0, 0, 0]))),
             # Default goal (can be updated via an external command if desired)
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            'fgoal': np.array([6, 0, 0]),
-            'plane': np.array([-1, 0, 0, 10.1]),
+            'fgoal': np.array([16, 0, 0]),
+            'plane': np.array([-1, 0, 0, 2.2]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 10,
-            'num_opt': 9,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.005, 0.005, 0.005, 0.1, 0.1, 0.1]),
+            'lambda_weight': 50,
+            'num_opt': 5,
+            'u_std': np.array([2, 2, 2, 0.05, 0.05, 0.05, 0.1, 0.1, 0.1]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
@@ -273,7 +273,9 @@ class MPPIControllerNode(object):
                 self.mppi_controller.shift_and_update(self.mppi_state, self.optimal_control_seq, num_shifts=1)
         else:
             self.mppi_controller.shift_and_update(np.concatenate((self.current_state, self.current_force_meas)), self.optimal_control_seq, num_shifts=1)
+        t0 = time.perf_counter()
         self.optimal_control_seq = self.mppi_controller.solve()
+        print('solve() took', (time.perf_counter() - t0)*1000, 'ms')
 
     def forward_simulate_for_mpc_target(self):
         """
@@ -403,7 +405,7 @@ class MPPIControllerNode(object):
         # if np.linalg.norm(self.current_force_meas) > 0.1:
         #     self.contacting = 1
 
-        if curr[0] > 9.04:
+        if curr[0] > 1.6:
             self.contacting = 1
         else:
             self.contacting = 0 

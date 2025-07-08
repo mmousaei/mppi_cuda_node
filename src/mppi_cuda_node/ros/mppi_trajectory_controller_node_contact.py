@@ -62,7 +62,7 @@ class MPPIControllerNode(object):
         # ----- MPPI Setup -----
         self.cfg = Config(
             T=1.0,            # Horizon length in seconds
-            dt=0.2,         # Time step (seconds)
+            dt=0.02,         # Time step (seconds)
             num_control_rollouts=1024*4,
             num_controls=6,
             num_states=12,
@@ -77,12 +77,14 @@ class MPPIControllerNode(object):
             # Default goal (can be updated via an external command if desired)
             'xgoal': np.array([0, 0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             'fgoal': np.array([5, 0, 0]),
-            'plane': np.array([1, 0, 0, -1.3]),
+            'plane': np.array([1, 0, 0, -2.8]),
             'goal_tolerance': 0.001,
             'dist_weight': 2000,
-            'lambda_weight': 10,
-            'num_opt': 5,
-            'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            # 'lambda_weight': 10,
+            'lambda_weight': 1000,
+            'num_opt': 6,
+            # 'u_std': np.array([0.5, 0.5, 0.5, 0.001, 0.001, 0.001]),
+            'u_std': np.array([5, 5, 5, 0.05, 0.05, 0.05]),
             'vrange': np.array([-10.0, 10.0]),
             'wrange': np.array([-0.1, 0.1]),
             'weights': np.array([
