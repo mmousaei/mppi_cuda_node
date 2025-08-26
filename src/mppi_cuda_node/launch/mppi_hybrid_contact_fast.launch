@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Fast Hybrid Contact MPPI Node -->
+  <node name="mppi_hybrid_contact_fast_node" 
+        pkg="mppi_cuda_node" 
+        type="mppi_hybrid_contact_fast_node.py" 
+        output="screen"
+        respawn="true">
+    
+    <!-- Control parameters -->
+    <param name="control_rate" value="50.0" />      <!-- MPPI control frequency (Hz) -->
+    <param name="publish_rate" value="20.0" />      <!-- MPC target publishing frequency (Hz) -->
+    
+    <!-- MPPI parameters -->
+    <param name="horizon_length" value="1.0" />     <!-- Horizon length in seconds -->
+    <param name="time_step" value="0.02" />         <!-- Time step in seconds -->
+    <param name="num_rollouts" value="1024" />      <!-- Number of control rollouts -->
+    
+    <!-- Cost weights -->
+    <param name="position_weight" value="10.0" />   <!-- Position error weight -->
+    <param name="velocity_weight" value="0.5" />    <!-- Velocity error weight -->
+    <param name="attitude_weight" value="0.3" />    <!-- Attitude error weight -->
+    <param name="angular_velocity_weight" value="0.2" /> <!-- Angular velocity error weight -->
+    <param name="contact_force_weight" value="0.1" /> <!-- Contact force error weight -->
+    
+    <!-- Control noise -->
+    <param name="force_noise_std" value="2.0" />    <!-- Force control noise std -->
+    <param name="torque_noise_std" value="0.5" />   <!-- Torque control noise std -->
+    <param name="force_rate_noise_std" value="0.1" /> <!-- Force rate control noise std -->
+    
+    <!-- Contact parameters -->
+    <param name="contact_threshold" value="0.2" />   <!-- Contact detection threshold -->
+    <param name="force_decay_rate" value="0.95" />   <!-- Force decay rate when not in contact -->
+    
+  </node>
+  
+  <!-- Optional: RViz visualization -->
+  <node name="rviz" 
+        pkg="rviz" 
+        type="rviz" 
+        args="-d $(find mppi_cuda_node)/rviz/mppi_hybrid_contact.rviz"
+        if="$(arg rviz)" />
+  
+  <!-- Launch arguments -->
+  <arg name="rviz" default="false" />
+  
+</launch>

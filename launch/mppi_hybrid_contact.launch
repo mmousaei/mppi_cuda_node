@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 
+    Launch file for MPPI Controller with Hybrid Contact Dynamics
+    
+    This controller provides improved numerical stability and physical consistency
+    for aerial manipulation tasks involving contact with surfaces.
+    
+    Features:
+    - Hybrid impulse-force contact dynamics
+    - Smooth contact activation with configurable transition zones
+    - Adaptive stiffness and damping based on penetration depth and velocity
+    - Enhanced stability during MPPI sampling
+    - Better integration with MPC for contact force tracking
+  -->
+
+  <!-- Node Configuration -->
+  <arg name="mppi_rate" default="50.0" />  <!-- MPPI update rate in Hz -->
+  <arg name="mpc_rate" default="100.0" />  <!-- MPC update rate in Hz -->
+  <arg name="contact_surface" default="wall" />  <!-- wall, floor, or custom -->
+  
+  <!-- Contact Surface Configuration -->
+  <arg name="wall_x" default="2.2" />  <!-- X position of wall surface -->
+  <arg name="floor_z" default="0.0" />  <!-- Z position of floor surface -->
+  
+  <!-- MPPI Parameters -->
+  <arg name="horizon_length" default="0.6" />  <!-- seconds -->
+  <arg name="time_step" default="0.02" />     <!-- seconds -->
+  <arg name="num_rollouts" default="2048" />  <!-- number of control rollouts -->
+  
+  <!-- Contact Dynamics Parameters -->
+  <arg name="contact_threshold" default="0.02" />           <!-- meters -->
+  <arg name="transition_distance" default="0.02" />         <!-- meters -->
+  <arg name="max_contact_force" default="50.0" />           <!-- N -->
+  <arg name="force_filter_cutoff" default="20.0" />         <!-- Hz -->
+  <arg name="contact_hysteresis_on" default="0.05" />       <!-- meters -->
+  <arg name="contact_hysteresis_off" default="0.02" />      <!-- meters -->
+
+  <!-- MPPI Hybrid Contact Controller Node -->
+  <node name="mppi_hybrid_contact_controller" 
+        pkg="mppi_cuda_node" 
+        type="mppi_hybrid_contact_node.py" 
+        output="screen"
+        respawn="true">
+    
+    <!-- Basic Configuration -->
+    <param name="mppi_rate_hz" value="$(arg mppi_rate)" />
+    <param name="mpc_horizon" value="0.8" />
+    
+    <!-- MPPI Parameters -->
+    <param name="horizon_length" value="$(arg horizon_length)" />
+    <param name="time_step" value="$(arg time_step)" />
+    <param name="num_rollouts" value="$(arg num_rollouts)" />
+    
+    <!-- Contact Dynamics Parameters -->
+    <param name="contact_threshold" value="$(arg contact_threshold)" />
+    <param name="transition_distance" value="$(arg transition_distance)" />
+    <param name="max_contact_force" value="$(arg max_contact_force)" />
+    <param name="force_filter_cutoff" value="$(arg force_filter_cutoff)" />
+    <param name="contact_hysteresis_on" value="$(arg contact_hysteresis_on)" />
+    <param name="contact_hysteresis_off" value="$(arg contact_hysteresis_off)" />
+    
+    <!-- Contact Surface Configuration -->
+    <param name="contact_surface" value="$(arg contact_surface)" />
+    <param name="wall_x" value="$(arg wall_x)" />
+    <param name="floor_z" value="$(arg floor_z)" />
+    
+    <!-- Remap topics if needed -->
+    <remap from="/odometry" to="/odometry" />
+    <remap from="/ft_data_filtered" to="/ft_data_filtered" />
+    <remap from="/mpc/target" to="/mpc/target" />
+    <remap from="/mpc/wrenchtarget" to="/mpc/wrenchtarget" />
+    
+  </node>
+
+  <!-- Optional: Contact State Visualization -->
+  <node name="contact_state_viz" 
+        pkg="rqt_plot" 
+        type="rqt_plot" 
+        args="/mppi_debug/contact_state/vector/x /mppi_debug/contact_state/vector/y /mppi_debug/contact_state/vector/z"
+        output="screen"
+        if="$(arg enable_visualization)">
+  </node>
+
+  <!-- Optional: Force Target Visualization -->
+  <node name="force_target_viz" 
+        pkg="rqt_plot" 
+        type="rqt_plot" 
+        args="/mpc/wrenchtarget/wrench/force/x /mpc/wrenchtarget/wrench/force/y /mpc/wrenchtarget/wrench/force/z"
+        output="screen"
+        if="$(arg enable_visualization)">
+  </node>
+
+  <!-- Optional: Enable visualization by default -->
+  <arg name="enable_visualization" default="false" />
+
+  <!-- Print launch information -->
+  <group if="$(eval arg('enable_visualization'))">
+    <node name="launch_info" pkg="rostopic" type="rostopic" args="echo /mppi_debug/contact_state" output="screen" />
+  </group>
+
+</launch>

@@ -3,7 +3,7 @@
 This node runs the MPPI controller:
   - It subscribes to odometry (and an optional activate flag).
   - It computes an optimal control sequence using MPPI.
-  - It “forward-simulates” the first control to compute a target state.
+  - It "forward-simulates" the first control to compute a target state.
   - It publishes that target as a PoseStamped message on '/mppi/target',
     which the MPC node will subscribe to.
 """
@@ -21,13 +21,13 @@ from scipy.signal import butter
 import time
 
 # --- MPPI imports ---
-# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity import MPPI_Numba, Config, dynamics_update_sim
-# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
-# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp import MPPI_Numba, Config
-from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact_lcp_3d_f_state_no_dyn import MPPI_Numba, Config, dynamics_update_euler
-# from mppi_cuda_node.controllers.mppi.mppi_numba_gravity_contact import MPPI_Numba, Config, dynamics_update_sim
-import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
-from dynamic_reconfigure.server import Server
+# ONLY CHANGE: Use hybrid contact controller instead of LCP
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from controllers.mppi.mppi_numba_hybrid_contact_fast import MPPI_Numba, Config, dynamics_update_euler
+# import mppi_cuda_node.cfg.MPPIParamsConfig as MPPIParamsConfig
+# from dynamic_reconfigure.server import Server
 
 from scipy.signal import butter
 from scipy.spatial.transform import Rotation
@@ -99,104 +99,68 @@ class MPPIControllerNode(object):
             "inertia_mass": np.array([self.inertia_flat[0], self.inertia_flat[1], self.inertia_flat[2], self.hex_mass])
         }
 
-        self.current_force_meas = np.zeros(3)
-        self.integral_error_z = 0.0  # Initialize integral error for z tracking
-        self.I_gain_z = 0.05  # Small integral gain (tune this!)
-
-        self.mppi_controller.set_params(self.mppi_params)
-        self.J = np.diag(self.mppi_params['inertia_mass'][:3])
-
-        self.mppi_state = None
-
-        # Prepare an initial control sequence
-        self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
-        if GRAVITY:
-            # Provide a hover guess for the z-thrust
-            self.optimal_control_seq[:, 2] = self.hex_mass * 9.81
-
-        # Optional: a low-pass filter (if you wish to filter commands)
-        cutoff_freq = 10
-        sampling_rate = 1 / 0.02  # Based on a 50 Hz update rate
-        b, a = butter_lowpass_online(cutoff_freq, sampling_rate)
-        self.lpf = OnlineLPF(b, a, self.cfg.num_states-3)
-
-        # ----- Subscribers and Publishers -----
+        # ----- ROS Setup -----
+        self.mppi_rate_hz = 50
+        self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=1)
+        self.target_force_pub = rospy.Publisher('/mppi/force_target', WrenchStamped, queue_size=1)
+        self.target_pub_debug = rospy.Publisher('/mppi/target_debug', PoseStamped, queue_size=1)
+        
         rospy.Subscriber('/odometry', Odometry, self.odometry_callback)
-        rospy.Subscriber('/mppi/activate', Bool, self.activate_callback)
+        rospy.Subscriber('/activate', Bool, self.activate_callback)
         rospy.Subscriber('/mppi/target', PoseStamped, self.target_callback)
-        rospy.Subscriber('/ft_data_filtered', WrenchStamped, self.force_sensor_callback)
 
-        # (Optional: subscribe to an external target command and update self.mppi_params['xgoal'] if needed)
+        # ----- Initialize MPPI Controller -----
+        self.mppi_controller.set_params(self.mppi_params)
+        self.optimal_control_seq = np.zeros((int(self.cfg.T/self.cfg.dt), self.cfg.num_controls))
+        self.mppi_state = None
+        self.integral_error_z = 0.0
 
-        # Publisher for the target that MPPI computes (for MPC)
-        self.target_pub = rospy.Publisher('/mpc/target', PoseStamped, queue_size=10)
-        self.target_force_pub = rospy.Publisher('/mpc/wrenchtarget', WrenchStamped, queue_size=10)
-        self.target_pub_debug = rospy.Publisher('/mppi_debug/target_mpc_debug', PoseStamped, queue_size=10)
+        # ----- Deadband Control Setup -----
+        self.deadband_indices = [0, 1, 2, 6, 7, 8]  # x, y, z, roll, pitch, yaw
+        self.r_on = np.array([0.05, 0.05, 0.05, 0.02, 0.02, 0.02])  # Thresholds to turn ON
+        self.r_off = np.array([0.02, 0.02, 0.02, 0.01, 0.01, 0.01])  # Thresholds to turn OFF
+        self.MPPI_mode = ['OFF'] * len(self.deadband_indices)  # Start with all OFF
+        self.deadband_timer = np.zeros(len(self.deadband_indices))
+        self.deadband_initial_state = np.full(len(self.deadband_indices), np.nan)
+        self.deadband_transition_duration = np.array([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])  # Transition time in seconds
 
-        self.mppi_rate_hz = 1/self.cfg.dt  # Run MPPI at 1/dt Hz
+        # ----- Low-pass filter setup -----
+        cutoff_freq = 10.0  # Hz
+        b, a = butter_lowpass_online(cutoff_freq, self.mppi_rate_hz, order=1)
+        self.lpf = OnlineLPF(b, a, 12)
 
-        rospy.loginfo("MPPI Controller Node Initialization Complete.")
-        # Set up dynamic reconfigure server for tuning MPC parameters
-        # self.dyn_server = Server(MPPIParamsConfig, self.dynamic_reconfigure_callback)
+        # ----- Contact force measurement -----
+        self.current_force_meas = np.zeros(3)
 
-       # Deadband
-        #   indices 0,1,2 for position (x,y,z) and 6,7,8 for attitude (roll, pitch, yaw)
-        self.deadband_indices = [0, 1, 2, 6, 7, 8]
-        self.MPPI_mode = np.array(['ON'] * 6, dtype='<U3')
-        # Deadband thresholds
-        self.r_on = np.array([0.1, 0.1, 0.1, 0.08, 0.08, 0.08])
-        self.r_off = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
-        self.deadband_timer = np.zeros(6)
-        # Initialize with NaNs so we can detect the first cycle in deadband
-        self.deadband_initial_state = np.full(6, np.nan)
-        self.deadband_transition_duration = np.array([1]*3 + [3]*3)
+        rospy.loginfo("MPPI Controller Node initialized successfully!")
 
     def initialize_hexarotor_parameters(self):
-        # Set your hexarotor parameters (tweak as needed)
-        self.hex_mass = 6.15  # kg (example value)
-        self.inertia_flat = np.array([0.21, 0.21, 0.40])
-        self.inertia_matrix = np.diag(self.inertia_flat)
+        """Initialize hexarotor physical parameters"""
+        # Mass and inertia
+        self.hex_mass = 2.5  # kg
+        self.hex_inertia = np.array([0.1, 0.1, 0.2])  # kg*m^2
+        self.inertia_flat = self.hex_inertia.flatten()
+        
+        # Inertia matrix
+        self.J = np.diag(self.hex_inertia)
 
-    def dynamic_reconfigure_callback(self, config, level):
-        rospy.loginfo("MPPI Dynamic Reconfigure Request:\n"
-                    "dt = %.3f\ngoal_tolerance = %.4f\ndist_weight = %.2f\nlambda_weight = %.2f\nnum_opt = %d\nu_std = [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]\nweights = [%.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f, %.1f]",
-                    config['dt'],config['goal_tolerance'],config['dist_weight'],config['lambda_weight'],config['num_opt'],config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz'],config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'], config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'], config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term'])
-        
-        # Update scalar MPPI parameters
-        self.cfg.dt = config['dt']
-        # self.mppi_params['dt'] = config['dt']
-        self.mppi_params['goal_tolerance'] = config['goal_tolerance']
-        self.mppi_params['dist_weight'] = config['dist_weight']
-        self.mppi_params['lambda_weight'] = config['lambda_weight']
-        self.mppi_params['num_opt'] = config['num_opt']
-        
-        # Reassemble the u_std array from individual elements.
-        self.mppi_params['u_std'] = np.array([ config['u_std_fx'], config['u_std_fy'], config['u_std_fz'], config['u_std_mx'], config['u_std_my'], config['u_std_mz']])
-        
-        # Reassemble the weights array from individual elements.
-        self.mppi_params['weights'] = np.array([ config['weights_x'], config['weights_y'], config['weights_z'], config['weights_vx'], config['weights_vy'], config['weights_vz'], config['weights_roll'], config['weights_pitch'], config['weights_yaw'], config['weights_wx'], config['weights_wy'], config['weights_wz'], config['weights_cf'], config['weights_cm'], config['weights_sf'], config['weights_sm'], config['weights_term']])
-    
-        # Update the MPPI controller with the new parameters.
-        self.mppi_controller.set_params(self.mppi_params)
-        
-        return config
-    
-
-    def force_sensor_callback(self, msg):
+    def hex_dynamics(self, state, control_inputs):
         """
-        Store the measured 3D force from WrenchStamped.
-        Adjust if your sensor orientation is different.
+        Hexarotor dynamics model.
+        state: [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r]
+        control_inputs: [fx, fy, fz, mx, my, mz, dfx, dfy, dfz]
         """
-        # Update the current force measurement
-        # pass
-        self.current_force_meas[0] = -msg.wrench.force.x
-        self.current_force_meas[1] = -msg.wrench.force.y
-        self.current_force_meas[2] = -msg.wrench.force.z
+        # Extract state variables
+        p = state[:3]  # Position
+        v = state[3:6]  # Velocity
+        Psi = state[6:9]  # Attitude (roll, pitch, yaw)
+        omega = state[9:]  # Angular velocity
 
-    
-    def hex_dynamics(self, x, u):
-        p, v, Psi, omega = np.split(x, 4)
-        f_T, m_T = u[:3], u[3:]
+        # Extract control inputs
+        f_T = control_inputs[:3]  # Force in body frame
+        m_T = control_inputs[3:6]  # Torque in body frame
+
+        # Rotation matrix from body to world frame
         phi, theta, psi = Psi
         R = np.array([
             [np.cos(theta)*np.cos(psi), np.cos(theta)*np.sin(psi), -np.sin(theta)],
